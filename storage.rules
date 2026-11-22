@@ -22,9 +22,27 @@ service firebase.storage {
         );
     }
 
+    function isValidAudioUpload() {
+      return request.resource.size > 0
+        && request.resource.size <= 25 * 1024 * 1024
+        && (
+          request.resource.contentType.matches('audio/wav') ||
+          request.resource.contentType.matches('audio/x-wav') ||
+          request.resource.contentType.matches('audio/wave') ||
+          request.resource.contentType.matches('audio/mpeg') ||
+          request.resource.contentType.matches('audio/mp3')
+        );
+    }
+
     match /documents/{ownerUid}/{allPaths=**} {
       allow read: if isSignedIn() && (request.auth.uid == ownerUid || isStaffEmail());
       allow write: if isSignedIn() && request.auth.uid == ownerUid && isValidUpload();
+    }
+
+    match /site_audio/{lang}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isStaffEmail() && (lang == 'en' || lang == 'hi') && isValidAudioUpload();
+      allow delete: if isStaffEmail() && (lang == 'en' || lang == 'hi');
     }
 
     match /{allPaths=**} {

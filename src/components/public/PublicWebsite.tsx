@@ -20,6 +20,7 @@ import {
 import { useMarketplace } from '../../context/MarketplaceContext';
 import { Button, EmptyState, EprRateTickerBar, ErrorAlertBanner, formatINR, LogoMark, StatusBadge } from '../ui/DesignSystem';
 import { PWAInstallButton } from '../ui/PWAInstall';
+import { AudioExplainerPlayer } from './AudioExplainerPlayer';
 import { formatTime, PublicPage } from '../../types';
 
 export const PublicWebsite: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
@@ -34,6 +35,7 @@ export const PublicWebsite: React.FC<{ children?: React.ReactNode }> = ({ childr
     publishedRates,
     publicListings,
     seoPages,
+    audioExplainers,
     navigatePublic,
     addToast,
   } = useMarketplace();
@@ -416,6 +418,12 @@ export const PublicWebsite: React.FC<{ children?: React.ReactNode }> = ({ childr
                 </div>
               </div>
             </section>
+
+            {/* Homepage Audio Explanation Player */}
+            <AudioExplainerPlayer
+              explainers={audioExplainers}
+              onLearnMore={() => navigatePublic('how-it-works')}
+            />
 
             {/* EPR Category Section */}
             <section className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-14">

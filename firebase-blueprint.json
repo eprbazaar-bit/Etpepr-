@@ -585,6 +585,34 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "action", "pageId", "slug", "details", "actorUid", "actorEmail", "createdAt"]
+    },
+    "SiteAudioExplainer": {
+      "title": "SiteAudioExplainer",
+      "description": "Published or draft bilingual (English/Hindi) platform audio explainer metadata and narration script.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "enum": ["en", "hi"] },
+        "language": { "type": "string", "enum": ["en", "hi"] },
+        "languageLabel": { "type": "string", "minLength": 2, "maxLength": 40 },
+        "title": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "narrationScript": { "type": "string", "minLength": 30, "maxLength": 6000 },
+        "audioUrl": { "type": "string", "maxLength": 1200 },
+        "storagePath": { "type": "string", "maxLength": 400 },
+        "storageProvider": { "type": "string", "enum": ["firebase-storage", "server-storage", "none"] },
+        "mimeType": { "type": "string", "enum": ["audio/wav", "audio/mpeg", "audio/mp3", ""] },
+        "fileName": { "type": "string", "maxLength": 240 },
+        "fileSizeBytes": { "type": "number" },
+        "durationSeconds": { "type": "number" },
+        "sourceType": { "type": "string", "enum": ["ai-generated", "uploaded", "none"] },
+        "modelUsed": { "type": "string", "maxLength": 120 },
+        "voiceName": { "type": "string", "maxLength": 60 },
+        "published": { "type": "boolean" },
+        "updatedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "updatedByEmail": { "type": "string", "maxLength": 160 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "language", "languageLabel", "title", "narrationScript", "audioUrl", "storagePath", "storageProvider", "mimeType", "fileName", "fileSizeBytes", "durationSeconds", "sourceType", "modelUsed", "voiceName", "published", "updatedByUid", "updatedByEmail", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -615,6 +643,7 @@
     "/platform_settings/{settingId}": { "schema": { "$ref": "#/entities/PlatformSettings" }, "description": "Global platform configuration." },
     "/seo_pages/{pageId}": { "schema": { "$ref": "#/entities/SeoPage" }, "description": "SEO metadata and publish state for public pages." },
     "/seo_settings/{settingId}": { "schema": { "$ref": "#/entities/SeoSettings" }, "description": "Global SEO sitemap status and canonical domain settings." },
-    "/seo_logs/{logId}": { "schema": { "$ref": "#/entities/SeoChangeLog" }, "description": "SEO metadata and sitemap change logs." }
+    "/seo_logs/{logId}": { "schema": { "$ref": "#/entities/SeoChangeLog" }, "description": "SEO metadata and sitemap change logs." },
+    "/site_audio_explainers/{langId}": { "schema": { "$ref": "#/entities/SiteAudioExplainer" }, "description": "Published or draft English and Hindi platform audio explainer metadata." }
   }
 }

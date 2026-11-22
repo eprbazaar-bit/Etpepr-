@@ -521,6 +521,33 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    function isValidSiteAudioExplainer(data) {
+      return data.keys().hasAll(['id', 'language', 'languageLabel', 'title', 'narrationScript', 'audioUrl', 'storagePath', 'storageProvider', 'mimeType', 'fileName', 'fileSizeBytes', 'durationSeconds', 'sourceType', 'modelUsed', 'voiceName', 'published', 'updatedByUid', 'updatedByEmail', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'language', 'languageLabel', 'title', 'narrationScript', 'audioUrl', 'storagePath', 'storageProvider', 'mimeType', 'fileName', 'fileSizeBytes', 'durationSeconds', 'sourceType', 'modelUsed', 'voiceName', 'published', 'updatedByUid', 'updatedByEmail', 'createdAt', 'updatedAt'])
+        && data.id in ['en', 'hi']
+        && data.language in ['en', 'hi']
+        && data.language == data.id
+        && data.languageLabel is string && data.languageLabel.size() >= 2 && data.languageLabel.size() <= 40
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 160
+        && data.narrationScript is string && data.narrationScript.size() >= 30 && data.narrationScript.size() <= 6000
+        && data.audioUrl is string && data.audioUrl.size() <= 1200
+        && data.storagePath is string && data.storagePath.size() <= 400
+        && data.storageProvider in ['firebase-storage', 'server-storage', 'none']
+        && data.mimeType in ['audio/wav', 'audio/mpeg', 'audio/mp3', '']
+        && data.fileName is string && data.fileName.size() <= 240
+        && data.fileSizeBytes is number && data.fileSizeBytes >= 0 && data.fileSizeBytes <= 26214400
+        && data.durationSeconds is number && data.durationSeconds >= 0 && data.durationSeconds <= 3600
+        && data.sourceType in ['ai-generated', 'uploaded', 'none']
+        && data.modelUsed is string && data.modelUsed.size() <= 120
+        && data.voiceName is string && data.voiceName.size() <= 60
+        && data.published is bool
+        && (!data.published || data.audioUrl.size() > 0)
+        && isValidId(data.updatedByUid)
+        && data.updatedByEmail is string && data.updatedByEmail.size() <= 160
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     // 1. users (strict RBAC: users can only self-register as buyer or seller)
     match /users/{uid} {
       allow get: if isValidId(uid) && isSignedIn() && (uid == request.auth.uid || isStaff());
@@ -987,6 +1014,23 @@ service cloud.firestore {
         && incoming().actorUid == request.auth.uid
         && incoming().createdAt == request.time;
       allow update, delete: if false;
+    }
+
+    // 28. site_audio_explainers (published English/Hindi homepage voice explainers; Admin managed)
+    match /site_audio_explainers/{langId} {
+      allow get: if langId in ['en', 'hi'] && (existing().published == true || isAdmin());
+      allow list: if existing().published == true || isAdmin();
+      allow create: if langId in ['en', 'hi'] && isAdmin() && isValidSiteAudioExplainer(incoming())
+        && incoming().id == langId
+        && incoming().updatedByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if langId in ['en', 'hi'] && isAdmin() && isValidSiteAudioExplainer(incoming())
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedByUid == request.auth.uid
+        && incoming().updatedAt == request.time;
+      allow delete: if langId in ['en', 'hi'] && isAdmin();
     }
   }
 }

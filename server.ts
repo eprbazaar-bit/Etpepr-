@@ -32,6 +32,19 @@ import {
 } from './server/seoRoutes.ts';
 import type { SeoDataStore } from './server/seoRoutes.ts';
 import { CANONICAL_ORIGIN } from './shared/seoEngine.ts';
+import {
+  generateNarrationAudio,
+  getAudioTtsServiceStatus,
+  parseWavMetadata,
+  resolveSafeServerAudioPath,
+  savePersistentServerAudio,
+} from './server/audioTtsService.ts';
+import type { SingleChunkSynthesizer } from './server/audioTtsService.ts';
+import {
+  normalizeAudioLanguage,
+  normalizeAudioModel,
+  normalizeAudioVoice,
+} from './shared/audioExplainer.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,6 +75,8 @@ export interface ServerDeps {
         projectId: string;
         databaseId: string;
       }>;
+  audioStorageDir?: string;
+  synthesizeAudioChunk?: SingleChunkSynthesizer;
 }
 
 function resolveAppBaseUrl(req: Request): string {
@@ -79,7 +94,15 @@ function resolveAppBaseUrl(req: Request): string {
 
 export function createApiApp(deps?: ServerDeps): Express {
   const app = express();
-  app.use(express.json({ limit: '256kb' }));
+  const defaultJsonParser = express.json({ limit: '256kb' });
+  const audioUploadJsonParser = express.json({ limit: '35mb' });
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.path === '/api/audio/upload') {
+      audioUploadJsonParser(req, res, next);
+      return;
+    }
+    defaultJsonParser(req, res, next);
+  });
 
   const verifyToken =
     deps?.verifyToken ||
@@ -278,6 +301,126 @@ export function createApiApp(deps?: ServerDeps): Express {
       const statusCode = (err as Error & { statusCode?: number }).statusCode || 500;
       res.status(statusCode).json({ ok: false, error: msg });
     }
+  });
+
+  app.get('/api/audio/status', async (req: Request, res: Response) => {
+    try {
+      await verifyAdminCaller(req.headers.authorization);
+      res.status(200).json({
+        ok: true,
+        ...getAudioTtsServiceStatus(),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unable to check audio generation status.';
+      const statusCode = (err as Error & { statusCode?: number }).statusCode || 500;
+      res.status(statusCode).json({ ok: false, error: msg });
+    }
+  });
+
+  app.post('/api/audio/generate', async (req: Request, res: Response) => {
+    try {
+      await verifyAdminCaller(req.headers.authorization);
+      const body = (req.body || {}) as {
+        language?: unknown;
+        script?: unknown;
+        voiceName?: unknown;
+        model?: unknown;
+      };
+      const language = normalizeAudioLanguage(body.language);
+      const script = typeof body.script === 'string' ? body.script : '';
+      const voiceName = normalizeAudioVoice(body.voiceName);
+      const model = normalizeAudioModel(body.model);
+
+      const generated = await generateNarrationAudio(
+        { language, script, voiceName, model },
+        { synthesizer: deps?.synthesizeAudioChunk }
+      );
+
+      res.status(200).json({
+        ok: true,
+        language: generated.language,
+        voiceName: generated.voiceName,
+        modelUsed: generated.modelUsed,
+        fallbackUsed: generated.fallbackUsed,
+        mimeType: generated.mimeType,
+        durationSeconds: generated.durationSeconds,
+        fileSizeBytes: generated.fileSizeBytes,
+        audioBase64: generated.wavBuffer.toString('base64'),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unable to generate voice narration.';
+      const statusCode = (err as Error & { statusCode?: number }).statusCode || 500;
+      res.status(statusCode).json({ ok: false, error: msg });
+    }
+  });
+
+  app.post('/api/audio/upload', async (req: Request, res: Response) => {
+    try {
+      await verifyAdminCaller(req.headers.authorization);
+      const body = (req.body || {}) as {
+        language?: unknown;
+        audioBase64?: unknown;
+        mimeType?: unknown;
+        fileName?: unknown;
+        durationSeconds?: unknown;
+      };
+      const language = normalizeAudioLanguage(body.language);
+      const audioBase64 = typeof body.audioBase64 === 'string' ? body.audioBase64.trim() : '';
+      const mimeType = typeof body.mimeType === 'string' ? body.mimeType.trim() : '';
+      const fileName = typeof body.fileName === 'string' ? body.fileName.trim() : undefined;
+
+      if (!audioBase64) {
+        res.status(400).json({ ok: false, error: 'Audio file data is required.' });
+        return;
+      }
+
+      const cleanBase64 = audioBase64.includes(',') ? audioBase64.split(',').pop() || '' : audioBase64;
+      const buffer = Buffer.from(cleanBase64, 'base64');
+
+      const saved = savePersistentServerAudio({
+        language,
+        buffer,
+        mimeType,
+        originalFileName: fileName,
+        storageDir: deps?.audioStorageDir,
+      });
+
+      let durationSeconds =
+        typeof body.durationSeconds === 'number' && Number.isFinite(body.durationSeconds) && body.durationSeconds > 0
+          ? Math.round(body.durationSeconds * 10) / 10
+          : 0;
+      if (durationSeconds === 0 && saved.mimeType === 'audio/wav') {
+        durationSeconds = parseWavMetadata(buffer).durationSeconds;
+      }
+
+      res.status(200).json({
+        ok: true,
+        language,
+        audioUrl: saved.publicUrl,
+        storagePath: `server/site-audio/${saved.fileName}`,
+        storageProvider: 'server-storage',
+        fileName: saved.fileName,
+        mimeType: saved.mimeType,
+        fileSizeBytes: saved.fileSizeBytes,
+        durationSeconds,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unable to save audio file.';
+      const statusCode = (err as Error & { statusCode?: number }).statusCode || 500;
+      res.status(statusCode).json({ ok: false, error: msg });
+    }
+  });
+
+  app.get('/api/audio/files/:fileName', (req: Request, res: Response) => {
+    const resolved = resolveSafeServerAudioPath(req.params.fileName, deps?.audioStorageDir);
+    if (!resolved) {
+      res.status(404).json({ ok: false, error: 'Audio file not found.' });
+      return;
+    }
+    res.setHeader('Content-Type', resolved.contentType);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.sendFile(resolved.filePath);
   });
 
   app.get('/api/health', async (_req: Request, res: Response) => {

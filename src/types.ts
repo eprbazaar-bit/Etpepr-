@@ -104,6 +104,7 @@ export type AdminTab =
   | 'notifications'
   | 'seo'
   | 'ai-seo'
+  | 'audio-management'
   | 'settings'
   | 'permissions';
 
@@ -783,6 +784,29 @@ export interface SeoAiLogRecord {
   actorUid: string;
   actorEmail: string;
   createdAt?: FirestoreTime;
+}
+
+export interface SiteAudioExplainerRecord {
+  id: 'en' | 'hi';
+  language: 'en' | 'hi';
+  languageLabel: string;
+  title: string;
+  narrationScript: string;
+  audioUrl: string;
+  storagePath: string;
+  storageProvider: 'firebase-storage' | 'server-storage' | 'none';
+  mimeType: 'audio/wav' | 'audio/mpeg' | 'audio/mp3' | '';
+  fileName: string;
+  fileSizeBytes: number;
+  durationSeconds: number;
+  sourceType: 'ai-generated' | 'uploaded' | 'none';
+  modelUsed: string;
+  voiceName: string;
+  published: boolean;
+  updatedByUid: string;
+  updatedByEmail: string;
+  createdAt?: FirestoreTime;
+  updatedAt?: FirestoreTime;
 }
 
 export interface ToastMessage {

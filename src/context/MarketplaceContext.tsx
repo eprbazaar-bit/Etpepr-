@@ -62,6 +62,7 @@ import {
   SeoChangeLog,
   SeoPageRecord,
   SeoSettingsRecord,
+  SiteAudioExplainerRecord,
   ToastMessage,
   TransactionRecord,
   UserRecord,
@@ -101,6 +102,14 @@ import {
 } from '../services/seoService';
 import { applyResolvedSeoToDocument } from '../seo/headManager';
 import { auditSeoPages, normalizeSlug, resolveMetadataForPath } from '../../shared/seoEngine';
+import {
+  base64ToBlob,
+  generateAudioNarrationApi,
+  persistAudioBlob,
+  saveSiteAudioExplainerDoc,
+  toggleSiteAudioPublishDoc,
+} from '../services/audioExplainerService';
+import { AudioLanguage, AudioTtsModel, AudioVoiceName, DEFAULT_AUDIO_METADATA } from '../../shared/audioExplainer';
 
 const BOOTSTRAPPED_ADMIN_EMAIL = 'ajaykumartiwari609@gmail.com';
 
@@ -157,6 +166,7 @@ interface MarketplaceContextValue {
   seoPages: SeoPageRecord[];
   seoSettings: SeoSettingsRecord | null;
   seoLogs: SeoChangeLog[];
+  audioExplainers: SiteAudioExplainerRecord[];
   toasts: ToastMessage[];
   navigatePublic: (page: PublicPage, categoryId?: string, customSlug?: string) => void;
   setBuyerTab: (tab: BuyerTab, id?: string) => void;
@@ -327,6 +337,29 @@ interface MarketplaceContextValue {
     usedAi?: boolean;
     error?: string;
   }>;
+  adminSaveAudioScript: (params: {
+    language: AudioLanguage;
+    title: string;
+    narrationScript: string;
+    voiceName: AudioVoiceName;
+  }) => Promise<void>;
+  adminGenerateAudioExplainer: (params: {
+    language: AudioLanguage;
+    title: string;
+    narrationScript: string;
+    voiceName: AudioVoiceName;
+    model: AudioTtsModel;
+  }) => Promise<void>;
+  adminUploadAudioExplainer: (params: {
+    language: AudioLanguage;
+    file: File;
+    title: string;
+    narrationScript: string;
+  }) => Promise<void>;
+  adminToggleAudioExplainerPublish: (
+    record: SiteAudioExplainerRecord,
+    publish: boolean
+  ) => Promise<void>;
 }
 
 const MarketplaceContext = createContext<MarketplaceContextValue | null>(null);
@@ -454,6 +487,7 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [seoPages, setSeoPages] = useState<SeoPageRecord[]>([]);
   const [seoSettings, setSeoSettings] = useState<SeoSettingsRecord | null>(null);
   const [seoLogs, setSeoLogs] = useState<SeoChangeLog[]>([]);
+  const [audioExplainers, setAudioExplainers] = useState<SiteAudioExplainerRecord[]>([]);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const addToast = (toast: Omit<ToastMessage, 'id'>) => {
@@ -639,6 +673,14 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
             if (snap.exists()) setSeoSettings(snap.data() as SeoSettingsRecord);
           },
           onErr('seo_settings/default')
+        )
+      );
+
+      unsubs.push(
+        onSnapshot(
+          query(collection(db, 'site_audio_explainers'), where('published', '==', true)),
+          (snap) => setAudioExplainers(snap.docs.map((d) => d.data() as SiteAudioExplainerRecord)),
+          onErr('site_audio_explainers')
         )
       );
     }
@@ -1013,6 +1055,11 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           onSnapshot(collection(db, 'seo_logs'), (s) => {
             setSeoLogs(s.docs.map((d) => d.data() as SeoChangeLog));
           }, onErr('seo_logs'))
+        );
+        unsubs.push(
+          onSnapshot(collection(db, 'site_audio_explainers'), (s) => {
+            setAudioExplainers(s.docs.map((d) => d.data() as SiteAudioExplainerRecord));
+          }, onErr('site_audio_explainers'))
         );
       }
     }
@@ -2121,6 +2168,180 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return res;
   };
 
+  const adminSaveAudioScript = async (params: {
+    language: AudioLanguage;
+    title: string;
+    narrationScript: string;
+    voiceName: AudioVoiceName;
+  }) => {
+    if (!authUser) throw new Error('Administrator sign-in required.');
+    await saveSiteAudioExplainerDoc({
+      language: params.language,
+      title: params.title,
+      narrationScript: params.narrationScript,
+      voiceName: params.voiceName,
+      actorUid: authUser.uid,
+      actorEmail: authUser.email || '',
+    });
+    await writeAuditLog(
+      authUser.uid,
+      authUser.email || '',
+      'Admin',
+      'Updated Audio Narration Script',
+      params.language,
+      `Saved ${DEFAULT_AUDIO_METADATA[params.language].languageLabel} narration script (${params.narrationScript.trim().length} chars)`
+    );
+    addToast({
+      type: 'success',
+      title: `${DEFAULT_AUDIO_METADATA[params.language].languageLabel} script saved`,
+    });
+  };
+
+  const adminGenerateAudioExplainer = async (params: {
+    language: AudioLanguage;
+    title: string;
+    narrationScript: string;
+    voiceName: AudioVoiceName;
+    model: AudioTtsModel;
+  }) => {
+    if (!authUser) throw new Error('Administrator sign-in required.');
+    const idToken = await authUser.getIdToken();
+    const generated = await generateAudioNarrationApi(idToken, {
+      language: params.language,
+      script: params.narrationScript,
+      voiceName: params.voiceName,
+      model: params.model,
+    });
+    if (!generated.audioBase64) {
+      throw new Error('Generated audio response was empty.');
+    }
+
+    const wavBlob = base64ToBlob(generated.audioBase64, 'audio/wav');
+    const persisted = await persistAudioBlob({
+      idToken,
+      language: params.language,
+      blob: wavBlob,
+      mimeType: 'audio/wav',
+      fileName: `epr-bazaar-${params.language}-ai.wav`,
+      durationSeconds: generated.durationSeconds,
+      existingBase64: generated.audioBase64,
+    });
+
+    await saveSiteAudioExplainerDoc({
+      language: params.language,
+      title: params.title,
+      narrationScript: params.narrationScript,
+      audioUrl: persisted.audioUrl,
+      storagePath: persisted.storagePath,
+      storageProvider: persisted.storageProvider,
+      mimeType: persisted.mimeType,
+      fileName: persisted.fileName,
+      fileSizeBytes: persisted.fileSizeBytes,
+      durationSeconds: persisted.durationSeconds,
+      sourceType: 'ai-generated',
+      modelUsed: generated.modelUsed || params.model,
+      voiceName: generated.voiceName || params.voiceName,
+      actorUid: authUser.uid,
+      actorEmail: authUser.email || '',
+    });
+
+    await writeAuditLog(
+      authUser.uid,
+      authUser.email || '',
+      'Admin',
+      'Generated AI Voice Narration',
+      params.language,
+      `Generated ${DEFAULT_AUDIO_METADATA[params.language].languageLabel} audio via ${generated.modelUsed || params.model} (${generated.voiceName || params.voiceName})`
+    );
+    addToast({
+      type: 'success',
+      title: `${DEFAULT_AUDIO_METADATA[params.language].languageLabel} voice narration generated`,
+      description: generated.fallbackUsed
+        ? `Generated with fallback engine (${generated.modelUsed}). Preview and publish when ready.`
+        : 'Audio saved to persistent storage. Preview and publish when ready.',
+    });
+  };
+
+  const adminUploadAudioExplainer = async (params: {
+    language: AudioLanguage;
+    file: File;
+    title: string;
+    narrationScript: string;
+  }) => {
+    if (!authUser) throw new Error('Administrator sign-in required.');
+    const idToken = await authUser.getIdToken();
+    const inferredMime =
+      params.file.type ||
+      (params.file.name.toLowerCase().endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav');
+
+    const persisted = await persistAudioBlob({
+      idToken,
+      language: params.language,
+      blob: params.file,
+      mimeType: inferredMime,
+      fileName: params.file.name,
+    });
+
+    await saveSiteAudioExplainerDoc({
+      language: params.language,
+      title: params.title,
+      narrationScript: params.narrationScript,
+      audioUrl: persisted.audioUrl,
+      storagePath: persisted.storagePath,
+      storageProvider: persisted.storageProvider,
+      mimeType: persisted.mimeType,
+      fileName: persisted.fileName,
+      fileSizeBytes: persisted.fileSizeBytes,
+      durationSeconds: persisted.durationSeconds,
+      sourceType: 'uploaded',
+      modelUsed: 'manual-upload',
+      voiceName: 'Studio Recording',
+      actorUid: authUser.uid,
+      actorEmail: authUser.email || '',
+    });
+
+    await writeAuditLog(
+      authUser.uid,
+      authUser.email || '',
+      'Admin',
+      'Uploaded Audio Narration',
+      params.language,
+      `Uploaded ${params.file.name} (${persisted.mimeType})`
+    );
+    addToast({
+      type: 'success',
+      title: `${DEFAULT_AUDIO_METADATA[params.language].languageLabel} audio uploaded`,
+      description: 'Stored permanently. Preview and publish when ready.',
+    });
+  };
+
+  const adminToggleAudioExplainerPublish = async (
+    record: SiteAudioExplainerRecord,
+    publish: boolean
+  ) => {
+    if (!authUser) throw new Error('Administrator sign-in required.');
+    await toggleSiteAudioPublishDoc({
+      record,
+      publish,
+      actorUid: authUser.uid,
+      actorEmail: authUser.email || '',
+    });
+    await writeAuditLog(
+      authUser.uid,
+      authUser.email || '',
+      'Admin',
+      publish ? 'Published Audio Narration' : 'Unpublished Audio Narration',
+      record.language,
+      `${record.languageLabel} homepage audio explanation ${publish ? 'published' : 'unpublished'}`
+    );
+    addToast({
+      type: publish ? 'success' : 'info',
+      title: publish
+        ? `${record.languageLabel} audio published to homepage`
+        : `${record.languageLabel} audio unpublished from homepage`,
+    });
+  };
+
   return (
     <MarketplaceContext.Provider
       value={{
@@ -2176,6 +2397,7 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         seoPages,
         seoSettings,
         seoLogs,
+        audioExplainers,
         toasts,
         navigatePublic,
         setBuyerTab,
@@ -2222,6 +2444,10 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         adminDeleteSeoPage,
         adminRegenerateSitemap,
         adminRequestSeoSuggestion,
+        adminSaveAudioScript,
+        adminGenerateAudioExplainer,
+        adminUploadAudioExplainer,
+        adminToggleAudioExplainerPublish,
       }}
     >
       {children}

@@ -32,6 +32,7 @@ import {
   TrendingUp,
   UserCheck,
   Users,
+  Volume2,
 } from 'lucide-react';
 import { useMarketplace } from '../../context/MarketplaceContext';
 import { PortalShell, SidebarNavItem } from './PortalShell';
@@ -48,6 +49,7 @@ import {
   StatusBadge,
 } from '../ui/DesignSystem';
 import { DocumentsView, NotificationsView, PaymentsView } from './SharedPortalViews';
+import { AudioManagementPanel } from './AudioManagementPanel';
 import {
   AdminTab,
   BuyerRequirement,
@@ -323,6 +325,7 @@ export const AdminPortal: React.FC = () => {
     { id: 'audit-logs', label: 'Audit Logs', icon: FileSpreadsheet },
     { id: 'notifications', label: 'Notifications', icon: Bell, badge: unreadNotifs },
     { id: 'seo', label: 'SEO Management', icon: Globe },
+    { id: 'audio-management', label: 'Audio Management', icon: Volume2 },
     { id: 'settings', label: 'Platform Settings', icon: Settings },
     { id: 'permissions', label: 'Permissions', icon: Lock },
   ];
@@ -2074,6 +2077,8 @@ export const AdminPortal: React.FC = () => {
           </div>
         </div>
       )}
+
+      {adminTab === 'audio-management' && <AudioManagementPanel />}
 
       {adminTab === 'seo' && (() => {
         const effectivePages: SeoPageRecord[] =
