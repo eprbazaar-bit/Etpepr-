@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import type { Express, NextFunction, Request, Response } from 'express';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
@@ -538,14 +539,19 @@ export function createApiApp(deps?: ServerDeps): Express {
 
 async function startServer() {
   const app = createApiApp();
+  const httpServer = http.createServer(app);
   const isProd = process.env.NODE_ENV === 'production';
 
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
+    const hmrDisabled = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: process.env.DISABLE_HMR !== 'true',
+        allowedHosts: true,
+        hmr: !hmrDisabled,
+        ws: { server: httpServer },
+        watch: hmrDisabled ? null : undefined,
       },
       appType: 'custom',
     });
@@ -617,7 +623,7 @@ async function startServer() {
   retryInterval.unref();
 
   const port = Number(process.env.PORT) || 3000;
-  app.listen(port, '0.0.0.0', () => {
+  httpServer.listen(port, '0.0.0.0', () => {
     console.log(`ETP EPR Bazaar server listening on http://0.0.0.0:${port}`);
   });
 }
