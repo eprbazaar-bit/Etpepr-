@@ -21,6 +21,8 @@ import { useMarketplace } from '../../context/MarketplaceContext';
 import { Button, EmptyState, EprRateTickerBar, ErrorAlertBanner, formatINR, LogoMark, StatusBadge } from '../ui/DesignSystem';
 import { PWAInstallButton } from '../ui/PWAInstall';
 import { AudioExplainerPlayer } from './AudioExplainerPlayer';
+import { CPCBComplianceSection } from './CPCBComplianceSection';
+import { MarketOverview } from './MarketOverview';
 import { formatTime, PublicPage } from '../../types';
 
 export const PublicWebsite: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
@@ -32,7 +34,9 @@ export const PublicWebsite: React.FC<{ children?: React.ReactNode }> = ({ childr
     selectedCategoryId,
     categories,
     subcategories,
+    marketRates,
     publishedRates,
+    transactions,
     publicListings,
     seoPages,
     audioExplainers,
@@ -330,6 +334,22 @@ export const PublicWebsite: React.FC<{ children?: React.ReactNode }> = ({ childr
                         <div className="text-xs text-[#64748B]">Counterparty privacy protected</div>
                       </div>
                     </div>
+
+                    <div className="mt-5 pt-4 border-t border-[#F1F5F9] flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-[#334155]">
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-[#15803D]">
+                        <ShieldCheck className="w-4 h-4 shrink-0" />
+                        CPCB Compliance Status: Aligned with Current EPR Guidelines
+                      </span>
+                      <span aria-hidden="true" className="text-[#CBD5E1]">
+                        ·
+                      </span>
+                      <a
+                        href="#cpcb-compliance-status"
+                        className="font-semibold text-[#0A172A] hover:text-[#16A36A] underline underline-offset-2 transition-colors whitespace-nowrap"
+                      >
+                        View Framework Details
+                      </a>
+                    </div>
                   </div>
 
                   {/* Official Published EPR Reference Rates Snapshot */}
@@ -418,6 +438,18 @@ export const PublicWebsite: React.FC<{ children?: React.ReactNode }> = ({ childr
                 </div>
               </div>
             </section>
+
+            {/* Market Overview Aggregate Trust Section */}
+            <MarketOverview
+              categories={categories}
+              publicListings={publicListings}
+              transactions={transactions}
+              publishedRates={publishedRates}
+              marketRates={marketRates}
+              onOpenMarketplace={() => navigatePublic('marketplace')}
+              onOpenRateBoard={() => navigatePublic('market-rates')}
+              onSelectCategory={(catId) => navigatePublic('category-details', catId)}
+            />
 
             {/* Homepage Audio Explanation Player */}
             <AudioExplainerPlayer
@@ -615,6 +647,13 @@ export const PublicWebsite: React.FC<{ children?: React.ReactNode }> = ({ childr
                 })}
               </div>
             </section>
+
+            {/* CPCB Compliance Status Section */}
+            <CPCBComplianceSection
+              onOpenBuyerGuidelines={() => navigatePublic('buyer-guidelines')}
+              onOpenSellerGuidelines={() => navigatePublic('seller-guidelines')}
+              onOpenDisclaimer={() => navigatePublic('disclaimer')}
+            />
 
             {/* Bottom CTA */}
             <section className="bg-[#10233F] text-white">
