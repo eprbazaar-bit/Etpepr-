@@ -1275,7 +1275,7 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
               : undefined,
           });
         }
-      } else if (emailRes.error) {
+      } else if (emailRes.error && !emailRes.serviceUnavailable) {
         addToast({
           type: 'warning',
           title: 'Email notification dispatch skipped',

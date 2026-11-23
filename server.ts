@@ -534,6 +534,23 @@ export function createApiApp(deps?: ServerDeps): Express {
     }
   });
 
+  app.all('/api/*', (_req: Request, res: Response) => {
+    res.status(404).json({ ok: false, error: 'API route not found.' });
+  });
+
+  app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+    if (req.path.startsWith('/api/')) {
+      const errorObj = err as { status?: number; statusCode?: number; message?: string };
+      const status = errorObj?.status || errorObj?.statusCode || 500;
+      res.status(status).json({
+        ok: false,
+        error: errorObj?.message || 'Unexpected API server error.',
+      });
+      return;
+    }
+    next(err);
+  });
+
   return app;
 }
 

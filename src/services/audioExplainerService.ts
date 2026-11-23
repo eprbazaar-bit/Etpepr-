@@ -1,6 +1,7 @@
 import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { db, handleFirestoreError, OperationType, storage } from '../firebase';
+import { apiFetchJson } from './apiClient';
 import { SiteAudioExplainerRecord } from '../types';
 import {
   AudioLanguage,
@@ -46,20 +47,23 @@ export interface PersistedAudioResult {
 }
 
 export async function getAudioTtsStatusApi(idToken: string): Promise<AudioTtsStatusResponse> {
-  try {
-    const res = await fetch('/api/audio/status', {
+  const res = await apiFetchJson<AudioTtsStatusResponse>(
+    '/api/audio/status',
+    {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${idToken}`,
       },
-    });
-    return (await res.json()) as AudioTtsStatusResponse;
-  } catch (err) {
+    },
+    'Audio generation API is not connected on this host.'
+  );
+  if (!res.ok || !res.data) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Unable to reach audio service.',
+      error: res.data?.error || res.error || 'Unable to reach audio service.',
     };
   }
+  return res.data;
 }
 
 export async function generateAudioNarrationApi(
@@ -71,19 +75,22 @@ export async function generateAudioNarrationApi(
     model: AudioTtsModel;
   }
 ): Promise<GeneratedAudioApiResponse> {
-  const res = await fetch('/api/audio/generate', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`,
+  const res = await apiFetchJson<GeneratedAudioApiResponse>(
+    '/api/audio/generate',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify(payload),
     },
-    body: JSON.stringify(payload),
-  });
-  const data = (await res.json()) as GeneratedAudioApiResponse;
-  if (!res.ok || !data.ok) {
-    throw new Error(data.error || 'Voice narration generation failed.');
+    'Voice generation API is not connected on this host. Please ensure the Node.js server is running.'
+  );
+  if (!res.ok || !res.data || !res.data.ok) {
+    throw new Error(res.data?.error || res.error || 'Voice narration generation failed.');
   }
-  return data;
+  return res.data;
 }
 
 export function base64ToBlob(base64: string, mimeType: string): Blob {
@@ -140,21 +147,7 @@ async function uploadAudioToServerFallbackApi(params: {
   fileName: string;
   durationSeconds: number;
 }): Promise<PersistedAudioResult> {
-  const res = await fetch('/api/audio/upload', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${params.idToken}`,
-    },
-    body: JSON.stringify({
-      language: params.language,
-      audioBase64: params.audioBase64,
-      mimeType: params.mimeType,
-      fileName: params.fileName,
-      durationSeconds: params.durationSeconds,
-    }),
-  });
-  const data = (await res.json()) as {
+  const res = await apiFetchJson<{
     ok: boolean;
     audioUrl?: string;
     storagePath?: string;
@@ -163,9 +156,27 @@ async function uploadAudioToServerFallbackApi(params: {
     fileSizeBytes?: number;
     durationSeconds?: number;
     error?: string;
-  };
-  if (!res.ok || !data.ok || !data.audioUrl) {
-    throw new Error(data.error || 'Failed to store audio file.');
+  }>(
+    '/api/audio/upload',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${params.idToken}`,
+      },
+      body: JSON.stringify({
+        language: params.language,
+        audioBase64: params.audioBase64,
+        mimeType: params.mimeType,
+        fileName: params.fileName,
+        durationSeconds: params.durationSeconds,
+      }),
+    },
+    'Audio upload API is not connected on this host. Please ensure Firebase Storage rules or the Node.js server are active.'
+  );
+  const data = res.data;
+  if (!res.ok || !data || !data.ok || !data.audioUrl) {
+    throw new Error(data?.error || res.error || 'Failed to store audio file.');
   }
   return {
     audioUrl: data.audioUrl,

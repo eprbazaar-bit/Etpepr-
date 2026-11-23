@@ -10,6 +10,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
+import { apiFetchJson } from './apiClient';
 import {
   auditSeoPages,
   buildCanonicalUrl,
@@ -371,23 +372,25 @@ export async function regenerateSitemapApi(idToken: string): Promise<{
   lastUpdatedIso?: string;
   error?: string;
 }> {
-  try {
-    const res = await fetch('/api/seo/regenerate', {
+  const res = await apiFetchJson<{ ok: boolean; lastUpdatedIso?: string; error?: string }>(
+    '/api/seo/regenerate',
+    {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${idToken}`,
       },
       body: JSON.stringify({}),
-    });
-    const data = (await res.json()) as { ok: boolean; lastUpdatedIso?: string; error?: string };
-    return data;
-  } catch (err) {
+    },
+    'Sitemap API is not connected on this host.'
+  );
+  if (!res.ok || !res.data) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Unable to refresh sitemap index.',
+      error: res.data?.error || res.error || 'Unable to refresh sitemap index.',
     };
   }
+  return res.data;
 }
 
 export async function requestSeoSuggestionApi(
@@ -405,27 +408,29 @@ export async function requestSeoSuggestionApi(
   usedAi?: boolean;
   error?: string;
 }> {
-  try {
-    const res = await fetch('/api/seo/suggest', {
+  const res = await apiFetchJson<{
+    ok: boolean;
+    aiDraftSeoTitle?: string;
+    aiDraftMetaDescription?: string;
+    usedAi?: boolean;
+    error?: string;
+  }>(
+    '/api/seo/suggest',
+    {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${idToken}`,
       },
       body: JSON.stringify(input),
-    });
-    const data = (await res.json()) as {
-      ok: boolean;
-      aiDraftSeoTitle?: string;
-      aiDraftMetaDescription?: string;
-      usedAi?: boolean;
-      error?: string;
-    };
-    return data;
-  } catch (err) {
+    },
+    'SEO suggestion API is not connected on this host.'
+  );
+  if (!res.ok || !res.data) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Unable to generate metadata suggestion.',
+      error: res.data?.error || res.error || 'Unable to generate metadata suggestion.',
     };
   }
+  return res.data;
 }

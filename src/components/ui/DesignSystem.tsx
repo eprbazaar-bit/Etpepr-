@@ -414,7 +414,7 @@ export const CsvExportButton: React.FC<{
 );
 
 export const SimpleBarChart: React.FC<{
-  data: { label: string; value: number }[];
+  data: { id?: string; label: string; value: number }[];
   color?: string;
   unit?: string;
 }> = ({ data, color = '#10233F', unit = '' }) => {
@@ -428,10 +428,11 @@ export const SimpleBarChart: React.FC<{
   const max = Math.max(...data.map((d) => d.value), 1);
   return (
     <div className="space-y-2.5">
-      {data.map((d) => {
+      {data.map((d, idx) => {
         const pct = Math.round((d.value / max) * 100);
+        const itemKey = d.id ? `${d.id}-${idx}` : `${d.label}-${idx}`;
         return (
-          <div key={d.label} className="space-y-1">
+          <div key={itemKey} className="space-y-1">
             <div className="flex items-center justify-between text-xs">
               <span className="text-[#334155] font-medium truncate pr-2">{d.label}</span>
               <span className="font-mono font-semibold text-[#0A172A] tabular-nums shrink-0">

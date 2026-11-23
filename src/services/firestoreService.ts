@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { db, handleFirestoreError, OperationType, storage } from '../firebase';
+import { apiFetchJson } from './apiClient';
 import {
   BuyerRequirement,
   DocumentRecord,
@@ -889,6 +890,7 @@ export interface DispatchEmailResult {
   skippedDuplicateCount?: number;
   providerConfigured?: boolean;
   provider?: string;
+  serviceUnavailable?: boolean;
   error?: string;
 }
 
@@ -897,29 +899,32 @@ export async function dispatchCategoryEmailNotificationsApi(
   listingId: string,
   notificationType: 'buyer_requirement' | 'seller_listing'
 ): Promise<DispatchEmailResult> {
-  try {
-    const resp = await fetch('/api/notifications/dispatch', {
+  const res = await apiFetchJson<DispatchEmailResult>(
+    '/api/notifications/dispatch',
+    {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${idToken}`,
       },
       body: JSON.stringify({ listingId, notificationType }),
-    });
-    const data = (await resp.json()) as DispatchEmailResult;
-    if (!resp.ok) {
-      return {
-        ok: false,
-        error: data.error || `HTTP ${resp.status}`,
-      };
-    }
-    return data;
-  } catch (err) {
+    },
+    'Email delivery service is not connected on this host.'
+  );
+  if (res.isHtmlFallback || res.status === 0) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Unable to reach notification delivery service.',
+      serviceUnavailable: true,
+      error: res.error,
     };
   }
+  if (!res.ok || !res.data) {
+    return {
+      ok: false,
+      error: res.data?.error || res.error || `HTTP ${res.status}`,
+    };
+  }
+  return res.data;
 }
 
 export interface RetryEmailResult {
@@ -929,6 +934,7 @@ export interface RetryEmailResult {
   failedCount?: number;
   providerConfigured?: boolean;
   provider?: string;
+  serviceUnavailable?: boolean;
   error?: string;
 }
 
@@ -936,29 +942,32 @@ export async function retryFailedEmailsApi(
   idToken: string,
   notificationId?: string
 ): Promise<RetryEmailResult> {
-  try {
-    const resp = await fetch('/api/notifications/retry', {
+  const res = await apiFetchJson<RetryEmailResult>(
+    '/api/notifications/retry',
+    {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${idToken}`,
       },
       body: JSON.stringify(notificationId ? { notificationId } : {}),
-    });
-    const data = (await resp.json()) as RetryEmailResult;
-    if (!resp.ok) {
-      return {
-        ok: false,
-        error: data.error || `Request error (${resp.status})`,
-      };
-    }
-    return data;
-  } catch (err) {
+    },
+    'Email delivery API is not connected on this host. Please run the Node.js server or configure VITE_API_BASE_URL.'
+  );
+  if (res.isHtmlFallback || res.status === 0) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Unable to reach notification delivery service.',
+      serviceUnavailable: true,
+      error: res.error,
     };
   }
+  if (!res.ok || !res.data) {
+    return {
+      ok: false,
+      error: res.data?.error || res.error || `Request error (${res.status})`,
+    };
+  }
+  return res.data;
 }
 
 export async function savePublishedRateDoc(params: {

@@ -286,9 +286,21 @@ export const AdminPortal: React.FC = () => {
   const totalAvailQty = marketRates.reduce((s, r) => s + r.availableQty, 0);
   const totalRevenue = orders.reduce((s, o) => s + o.brokerageAmount, 0);
 
+  const categoryLabelCounts = categories.reduce<Record<string, number>>((acc, c) => {
+    const baseLabel = (c.shortName || c.name).trim();
+    acc[baseLabel] = (acc[baseLabel] || 0) + 1;
+    return acc;
+  }, {});
+
+  const formatCategoryChartLabel = (c: EPRCategory) => {
+    const baseLabel = (c.shortName || c.name).trim();
+    return (categoryLabelCounts[baseLabel] || 0) > 1 && c.code ? `${baseLabel} (${c.code})` : baseLabel;
+  };
+
   const txByCategory = categories
     .map((c) => ({
-      label: c.shortName || c.name,
+      id: c.id,
+      label: formatCategoryChartLabel(c),
       value: transactions.filter((t) => t.categoryId === c.id).reduce((s, t) => s + t.quantity, 0),
     }))
     .filter((d) => d.value > 0);
@@ -508,7 +520,11 @@ export const AdminPortal: React.FC = () => {
               </div>
               <SimpleBarChart
                 data={categories
-                  .map((c) => ({ label: c.shortName || c.name, value: getCategoryAvailQty(c.id) }))
+                  .map((c) => ({
+                    id: c.id,
+                    label: formatCategoryChartLabel(c),
+                    value: getCategoryAvailQty(c.id),
+                  }))
                   .filter((d) => d.value > 0)}
                 color="#10233F"
               />
