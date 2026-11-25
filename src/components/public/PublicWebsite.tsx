@@ -23,10 +23,13 @@ import { PWAInstallButton } from '../ui/PWAInstall';
 import { AudioExplainerPlayer } from './AudioExplainerPlayer';
 import { CPCBComplianceSection } from './CPCBComplianceSection';
 import { MarketOverview } from './MarketOverview';
+import { LiveSellerOffersSection } from './LiveSellerOffersSection';
+import { OfferDetailPage } from './OfferDetailPage';
 import { formatTime, PublicPage } from '../../types';
 
 export const PublicWebsite: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
   const {
+    role,
     connectionError,
     permissionError,
     publicPage,
@@ -38,9 +41,12 @@ export const PublicWebsite: React.FC<{ children?: React.ReactNode }> = ({ childr
     publishedRates,
     transactions,
     publicListings,
+    publicSellerOffers,
     seoPages,
     audioExplainers,
     navigatePublic,
+    navigateToOffer,
+    returnToPortalDashboard,
     addToast,
   } = useMarketplace();
 
@@ -228,9 +234,15 @@ export const PublicWebsite: React.FC<{ children?: React.ReactNode }> = ({ childr
 
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <PWAInstallButton variant="header" className="hidden sm:inline-flex" />
-            <Button variant="primary" size="md" onClick={() => navigatePublic('login')} className="hidden sm:inline-flex">
-              Login / Register
-            </Button>
+            {role !== 'public' ? (
+              <Button variant="primary" size="md" onClick={returnToPortalDashboard} className="hidden sm:inline-flex">
+                My Dashboard
+              </Button>
+            ) : (
+              <Button variant="primary" size="md" onClick={() => navigatePublic('login')} className="hidden sm:inline-flex">
+                Login / Register
+              </Button>
+            )}
             <button
               type="button"
               onClick={() => setMobileMenuOpen((v) => !v)}
@@ -259,16 +271,29 @@ export const PublicWebsite: React.FC<{ children?: React.ReactNode }> = ({ childr
             ))}
             <div className="pt-2 border-t border-[#E2E8F0] space-y-2">
               <PWAInstallButton variant="mobile-menu" />
-              <Button
-                variant="primary"
-                className="w-full"
-                onClick={() => {
-                  navigatePublic('login');
-                  setMobileMenuOpen(false);
-                }}
-              >
-                Login / Register
-              </Button>
+              {role !== 'public' ? (
+                <Button
+                  variant="primary"
+                  className="w-full"
+                  onClick={() => {
+                    returnToPortalDashboard();
+                    setMobileMenuOpen(false);
+                  }}
+                >
+                  My Dashboard
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  className="w-full"
+                  onClick={() => {
+                    navigatePublic('login');
+                    setMobileMenuOpen(false);
+                  }}
+                >
+                  Login / Register
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -449,6 +474,15 @@ export const PublicWebsite: React.FC<{ children?: React.ReactNode }> = ({ childr
               onOpenMarketplace={() => navigatePublic('marketplace')}
               onOpenRateBoard={() => navigatePublic('market-rates')}
               onSelectCategory={(catId) => navigatePublic('category-details', catId)}
+            />
+
+            {/* Live EPR Seller Offers Marketplace Section */}
+            <LiveSellerOffersSection
+              offers={publicSellerOffers}
+              categories={categories}
+              onViewOffer={(offerId) => navigateToOffer(offerId)}
+              onSellerSignIn={() => navigatePublic('login')}
+              onCopiedLink={() => addToast({ type: 'success', title: 'Offer link copied to clipboard' })}
             />
 
             {/* Homepage Audio Explanation Player */}
@@ -682,6 +716,8 @@ export const PublicWebsite: React.FC<{ children?: React.ReactNode }> = ({ childr
               </div>
             </section>
           </>
+        ) : publicPage === 'offer-details' ? (
+          <OfferDetailPage />
         ) : publicPage === 'marketplace' ? (
           <section className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-6">
             <div className="flex flex-wrap items-end justify-between gap-4">

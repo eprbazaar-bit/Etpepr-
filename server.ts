@@ -24,15 +24,24 @@ import {
   createFirestoreSeoStore,
   generateAdminSeoSuggestion,
   generateCategoriesSitemapFromSnapshot,
+  generateOffersSitemapXml,
   generatePagesSitemapFromSnapshot,
   generateRobotsTxt,
   generateSitemapIndexFromSnapshot,
+  injectOfferSeoIntoHtml,
   injectSeoIntoHtml,
   invalidateSeoCache,
   loadSeoCatalogSnapshot,
 } from './server/seoRoutes.ts';
 import type { SeoDataStore } from './server/seoRoutes.ts';
 import { CANONICAL_ORIGIN } from './shared/seoEngine.ts';
+import {
+  listPublicActiveOffersForServer,
+  loadOfferByIdForServer,
+} from './server/offerService.ts';
+import type { OfferReadStore } from './server/offerService.ts';
+import { renderOfferOgPng } from './server/offerOgImage.ts';
+import { isOfferPubliclyVisible, OFFER_ID_REGEX } from './shared/sellerOffers.ts';
 import {
   generateNarrationAudio,
   getAudioTtsServiceStatus,
@@ -60,6 +69,7 @@ export interface ServerDeps {
   verifyToken?: (authHeader: string | undefined) => Promise<VerifiedCaller>;
   getStore?: () => NotificationStore;
   getSeoStore?: () => SeoDataStore;
+  getOfferStore?: () => OfferReadStore;
   getEmailSender?: () => EmailSender;
   getHealthState?: () =>
     | {
@@ -150,13 +160,16 @@ export function createApiApp(deps?: ServerDeps): Express {
 
   app.get('/sitemap.xml', async (_req: Request, res: Response) => {
     try {
-      const snapshot = await loadSeoCatalogSnapshot({
-        customStore: deps?.getSeoStore?.(),
-      });
+      const [snapshot, activeOffers] = await Promise.all([
+        loadSeoCatalogSnapshot({
+          customStore: deps?.getSeoStore?.(),
+        }),
+        listPublicActiveOffersForServer(deps?.getOfferStore?.()),
+      ]);
       res.status(200);
       res.setHeader('Content-Type', 'application/xml; charset=utf-8');
       res.setHeader('Cache-Control', 'public, max-age=60, must-revalidate');
-      res.send(generateSitemapIndexFromSnapshot(snapshot, CANONICAL_ORIGIN));
+      res.send(generateSitemapIndexFromSnapshot(snapshot, CANONICAL_ORIGIN, activeOffers));
     } catch (err) {
       res.status(500).type('text/plain').send(err instanceof Error ? err.message : 'Unable to render sitemap.');
     }
@@ -190,6 +203,73 @@ export function createApiApp(deps?: ServerDeps): Express {
         .status(500)
         .type('text/plain')
         .send(err instanceof Error ? err.message : 'Unable to render categories sitemap.');
+    }
+  });
+
+  app.get('/sitemap-offers.xml', async (_req: Request, res: Response) => {
+    try {
+      const activeOffers = await listPublicActiveOffersForServer(deps?.getOfferStore?.());
+      res.status(200);
+      res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=60, must-revalidate');
+      res.send(generateOffersSitemapXml(activeOffers, CANONICAL_ORIGIN));
+    } catch (err) {
+      res
+        .status(500)
+        .type('text/plain')
+        .send(err instanceof Error ? err.message : 'Unable to render offers sitemap.');
+    }
+  });
+
+  app.get('/api/offers', async (_req: Request, res: Response) => {
+    try {
+      const offers = await listPublicActiveOffersForServer(deps?.getOfferStore?.());
+      res.status(200).json({ ok: true, offers });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Unable to load public seller offers.',
+      });
+    }
+  });
+
+  app.get('/api/offers/:offerId', async (req: Request, res: Response) => {
+    const offerId = String(req.params.offerId || '').trim();
+    if (!OFFER_ID_REGEX.test(offerId)) {
+      res.status(400).json({ ok: false, error: 'Invalid offer ID format.' });
+      return;
+    }
+    try {
+      const offer = await loadOfferByIdForServer(offerId, deps?.getOfferStore?.());
+      if (!offer || !isOfferPubliclyVisible(offer)) {
+        res.status(404).json({ ok: false, error: 'Offer not found or no longer active.' });
+        return;
+      }
+      res.status(200).json({ ok: true, offer });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Unable to load offer details.',
+      });
+    }
+  });
+
+  app.get('/api/offers/:offerId/og-image.png', async (req: Request, res: Response) => {
+    const offerId = String(req.params.offerId || '').trim();
+    if (!OFFER_ID_REGEX.test(offerId)) {
+      res.status(400).type('text/plain').send('Invalid offer ID.');
+      return;
+    }
+    try {
+      const offer = await loadOfferByIdForServer(offerId, deps?.getOfferStore?.());
+      const visibleOffer = offer && isOfferPubliclyVisible(offer) ? offer : null;
+      const pngBuffer = renderOfferOgPng(visibleOffer, offerId, CANONICAL_ORIGIN);
+      res.status(200);
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300');
+      res.send(pngBuffer);
+    } catch (err) {
+      res.status(500).type('text/plain').send(err instanceof Error ? err.message : 'Unable to render preview image.');
     }
   });
 
@@ -587,8 +667,19 @@ async function startServer() {
         const indexPath = path.resolve(__dirname, 'index.html');
         const rawTemplate = fs.readFileSync(indexPath, 'utf8');
         const transformed = await vite.transformIndexHtml(req.originalUrl, rawTemplate);
-        const snapshot = await loadSeoCatalogSnapshot();
-        const html = injectSeoIntoHtml(transformed, req.path, snapshot);
+        const offerMatch = req.path.match(/^\/offer\/([^/]+)\/?$/i);
+        let html: string;
+        if (offerMatch) {
+          const offerId = decodeURIComponent(offerMatch[1]);
+          const offer = await loadOfferByIdForServer(offerId);
+          html = injectOfferSeoIntoHtml(transformed, offer, offerId, {
+            canonicalOrigin: CANONICAL_ORIGIN,
+            mediaOrigin: resolveAppBaseUrl(req),
+          });
+        } else {
+          const snapshot = await loadSeoCatalogSnapshot();
+          html = injectSeoIntoHtml(transformed, req.path, snapshot);
+        }
         res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').end(html);
       } catch (err) {
         if (err instanceof Error) {
@@ -608,8 +699,19 @@ async function startServer() {
       }
       if (fs.existsSync(indexHtmlPath)) {
         const rawHtml = fs.readFileSync(indexHtmlPath, 'utf8');
-        const snapshot = await loadSeoCatalogSnapshot();
-        const html = injectSeoIntoHtml(rawHtml, req.path, snapshot);
+        const offerMatch = req.path.match(/^\/offer\/([^/]+)\/?$/i);
+        let html: string;
+        if (offerMatch) {
+          const offerId = decodeURIComponent(offerMatch[1]);
+          const offer = await loadOfferByIdForServer(offerId);
+          html = injectOfferSeoIntoHtml(rawHtml, offer, offerId, {
+            canonicalOrigin: CANONICAL_ORIGIN,
+            mediaOrigin: resolveAppBaseUrl(req),
+          });
+        } else {
+          const snapshot = await loadSeoCatalogSnapshot();
+          html = injectSeoIntoHtml(rawHtml, req.path, snapshot);
+        }
         res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').end(html);
       } else {
         res.status(503).send('Production bundle not built yet. Run npm run build.');

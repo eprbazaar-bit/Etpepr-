@@ -11,10 +11,12 @@ import {
   History,
   LayoutDashboard,
   ListChecks,
+  Megaphone,
   PackageCheck,
   Plus,
   Settings,
   ShieldCheck,
+  Tag,
 } from 'lucide-react';
 import { useMarketplace } from '../../context/MarketplaceContext';
 import { PortalShell, SidebarNavItem } from './PortalShell';
@@ -29,6 +31,7 @@ import {
   StatusBadge,
 } from '../ui/DesignSystem';
 import { CompanyProfileView, DocumentsView, NotificationsView, PaymentsView } from './SharedPortalViews';
+import { SellerOffersSection } from './SellerOffersSection';
 import { SellerListing, SellerTab, formatTime } from '../../types';
 
 export const SellerPortal: React.FC = () => {
@@ -40,6 +43,7 @@ export const SellerPortal: React.FC = () => {
     subcategories,
     publishedRates,
     listings,
+    offerEnquiries,
     matches,
     offers,
     negotiations,
@@ -123,6 +127,13 @@ export const SellerPortal: React.FC = () => {
     { id: 'verification', label: 'Verification', icon: ShieldCheck },
     { id: 'create-listing', label: 'Create Listing', icon: FilePlus2 },
     { id: 'my-listings', label: 'My Listings', icon: ListChecks },
+    { id: 'submit-selling-offer', label: 'Submit Selling Offer', icon: Megaphone },
+    {
+      id: 'my-selling-offers',
+      label: 'My Selling Offers',
+      icon: Tag,
+      badge: offerEnquiries.filter((e) => e.status === 'New').length,
+    },
     { id: 'matching-opportunities', label: 'Matching Opportunities', icon: Handshake, badge: matches.length },
     {
       id: 'offers-received',
@@ -1265,6 +1276,20 @@ export const SellerPortal: React.FC = () => {
         )
       )}
 
+      {sellerTab === 'submit-selling-offer' && (
+        <SellerOffersSection
+          mode="submit"
+          onSwitchToManage={() => setSellerTab('my-selling-offers')}
+          onSwitchToSubmit={() => setSellerTab('submit-selling-offer')}
+        />
+      )}
+      {sellerTab === 'my-selling-offers' && (
+        <SellerOffersSection
+          mode="manage"
+          onSwitchToManage={() => setSellerTab('my-selling-offers')}
+          onSwitchToSubmit={() => setSellerTab('submit-selling-offer')}
+        />
+      )}
       {sellerTab === 'company-profile' && (
         <CompanyProfileView account={currentSeller} accountType="seller" mode="profile" />
       )}
@@ -1279,7 +1304,9 @@ export const SellerPortal: React.FC = () => {
       {sellerTab === 'notifications' && (
         <NotificationsView
           onViewListing={(n) => {
-            if (n.listingId?.startsWith('LST-')) {
+            if (n.title.toLowerCase().includes('buyer enquiry') || n.title.toLowerCase().includes('selling offer')) {
+              setSellerTab('my-selling-offers');
+            } else if (n.listingId?.startsWith('LST-')) {
               setSellerTab('listing-details', n.listingId);
             } else {
               setSellerTab('matching-opportunities');

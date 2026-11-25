@@ -23,6 +23,11 @@ import type {
   SeoAuditReport,
   SeoPageInput,
 } from '../shared/seoEngine.ts';
+import {
+  buildOfferSeoMetadata,
+  buildOfferSitemapXmlEntries,
+} from '../shared/sellerOffers.ts';
+import type { SellerOfferBase } from '../shared/sellerOffers.ts';
 import { getAdminDb, getFirebaseAdminState } from './firebaseAdmin.ts';
 
 export interface SeoCatalogSnapshot {
@@ -333,7 +338,8 @@ export async function loadSeoCatalogSnapshot(options?: {
 
 export function generateSitemapIndexFromSnapshot(
   snapshot: SeoCatalogSnapshot,
-  origin = CANONICAL_ORIGIN
+  origin = CANONICAL_ORIGIN,
+  activeOffers: SellerOfferBase[] = []
 ): string {
   const cleanOrigin = buildCanonicalUrl('/', origin).replace(/\/$/, '');
   const lastmod = snapshot.lastUpdatedIso.slice(0, 10);
@@ -350,7 +356,22 @@ export function generateSitemapIndexFromSnapshot(
       lastmod,
     });
   }
+  const offerItems = buildOfferSitemapXmlEntries(activeOffers, cleanOrigin);
+  if (offerItems.length > 0) {
+    sitemaps.push({
+      loc: `${cleanOrigin}/sitemap-offers.xml`,
+      lastmod,
+    });
+  }
   return renderSitemapIndexXml(sitemaps);
+}
+
+export function generateOffersSitemapXml(
+  activeOffers: SellerOfferBase[],
+  origin = CANONICAL_ORIGIN
+): string {
+  const items = buildOfferSitemapXmlEntries(activeOffers, origin);
+  return renderUrlSetXml(items);
 }
 
 export function generatePagesSitemapFromSnapshot(
@@ -426,6 +447,63 @@ export function injectSeoIntoHtml(
   let updated = html;
   updated = updated.replace(/<title>[\s\S]*?<\/title>/i, () => titleTag);
   // Remove static duplicates before injecting authoritative route-specific tags
+  updated = updated
+    .replace(/<meta[^>]+name=["']description["'][^>]*>\s*/gi, '')
+    .replace(/<meta[^>]+name=["']robots["'][^>]*>\s*/gi, '')
+    .replace(/<link[^>]+rel=["']canonical["'][^>]*>\s*/gi, '')
+    .replace(/<meta[^>]+property=["']og:[^"']+["'][^>]*>\s*/gi, '')
+    .replace(/<meta[^>]+name=["']twitter:[^"']+["'][^>]*>\s*/gi, '')
+    .replace(/<script[^>]+id=["']epr-seo-jsonld["'][^>]*>[\s\S]*?<\/script>\s*/gi, '');
+
+  updated = updated.replace('</head>', () => `    ${seoHeadBlock}\n  </head>`);
+  return updated;
+}
+
+export function injectOfferSeoIntoHtml(
+  html: string,
+  offer: SellerOfferBase | null,
+  offerId: string,
+  options?: { canonicalOrigin?: string; mediaOrigin?: string }
+): string {
+  const canonicalOrigin = options?.canonicalOrigin || CANONICAL_ORIGIN;
+  const mediaOrigin = options?.mediaOrigin || canonicalOrigin;
+  const meta = buildOfferSeoMetadata(offer, offerId, canonicalOrigin);
+  const ogImageUrl =
+    offer && meta.robots === 'index, follow'
+      ? `${mediaOrigin.replace(/\/+$/, '')}/api/offers/${encodeURIComponent(offerId.trim())}/og-image.png`
+      : meta.ogImage;
+
+  const titleTag = `<title>${escapeXml(meta.seoTitle)}</title>`;
+  const seoHeadBlock = [
+    `<meta name="description" content="${escapeAttr(meta.metaDescription)}" />`,
+    `<meta name="robots" content="${escapeAttr(meta.robots)}" />`,
+    `<link rel="canonical" href="${escapeAttr(meta.canonicalUrl)}" />`,
+    `<meta property="og:title" content="${escapeAttr(meta.ogTitle)}" />`,
+    `<meta property="og:description" content="${escapeAttr(meta.ogDescription)}" />`,
+    `<meta property="og:type" content="${escapeAttr(meta.ogType)}" />`,
+    `<meta property="og:url" content="${escapeAttr(meta.canonicalUrl)}" />`,
+    `<meta property="og:site_name" content="${escapeAttr(meta.ogSiteName)}" />`,
+    `<meta property="og:image" content="${escapeAttr(ogImageUrl)}" />`,
+    `<meta property="og:image:secure_url" content="${escapeAttr(ogImageUrl)}" />`,
+    `<meta property="og:image:type" content="image/png" />`,
+    `<meta property="og:image:width" content="${meta.ogImageWidth}" />`,
+    `<meta property="og:image:height" content="${meta.ogImageHeight}" />`,
+    `<meta property="og:image:alt" content="${escapeAttr(meta.ogTitle)}" />`,
+    `<meta name="twitter:card" content="${escapeAttr(meta.twitterCard)}" />`,
+    `<meta name="twitter:title" content="${escapeAttr(meta.twitterTitle)}" />`,
+    `<meta name="twitter:description" content="${escapeAttr(meta.twitterDescription)}" />`,
+    `<meta name="twitter:image" content="${escapeAttr(ogImageUrl)}" />`,
+    ...(meta.structuredData.length > 0
+      ? [
+          `<script id="epr-seo-jsonld" type="application/ld+json">${JSON.stringify(
+            meta.structuredData.length === 1 ? meta.structuredData[0] : meta.structuredData
+          )}</script>`,
+        ]
+      : []),
+  ].join('\n    ');
+
+  let updated = html;
+  updated = updated.replace(/<title>[\s\S]*?<\/title>/i, () => titleTag);
   updated = updated
     .replace(/<meta[^>]+name=["']description["'][^>]*>\s*/gi, '')
     .replace(/<meta[^>]+name=["']robots["'][^>]*>\s*/gi, '')

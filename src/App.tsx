@@ -10,7 +10,16 @@ import { ErrorAlertBanner, ToastContainer, WebLoader } from './components/ui/Des
 import { OfflineIndicator } from './components/ui/PWAInstall';
 
 const AppRouter: React.FC = () => {
-  const { role, publicPage, authLoading, connectionError, toasts, dismissToast } = useMarketplace();
+  const {
+    role,
+    publicPage,
+    selectedPublicOfferId,
+    viewingPublicOfferWhileSignedIn,
+    authLoading,
+    connectionError,
+    toasts,
+    dismissToast,
+  } = useMarketplace();
   const [initialBootDone, setInitialBootDone] = useState(false);
 
   useEffect(() => {
@@ -43,9 +52,16 @@ const AppRouter: React.FC = () => {
     );
   }
 
+  const showSharedOfferView =
+    publicPage === 'offer-details' &&
+    Boolean(selectedPublicOfferId) &&
+    (role === 'public' || viewingPublicOfferWhileSignedIn);
+
   return (
     <>
-      {role === 'buyer' ? (
+      {showSharedOfferView ? (
+        <PublicWebsite />
+      ) : role === 'buyer' ? (
         <BuyerPortal />
       ) : role === 'seller' ? (
         <SellerPortal />

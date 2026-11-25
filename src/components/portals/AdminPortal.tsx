@@ -70,6 +70,12 @@ import {
   validateCanonicalUrl,
 } from '../../../shared/seoEngine';
 import { toSeoPageInput } from '../../services/seoService';
+import {
+  formatOfferQuantity,
+  formatOfferRatePerKg,
+  formatValidityDateDisplay,
+  getEffectiveOfferStatus,
+} from '../../../shared/sellerOffers';
 
 export const AdminPortal: React.FC = () => {
   const {
@@ -88,6 +94,7 @@ export const AdminPortal: React.FC = () => {
     admins,
     requirements,
     listings,
+    sellerOffers,
     matches,
     negotiations,
     orders,
@@ -100,6 +107,8 @@ export const AdminPortal: React.FC = () => {
     seoSettings,
     seoLogs,
     adminApproveListing,
+    updateSellerRateOfferStatus,
+    navigateToOffer,
     adminApproveRequirement,
     adminVerifyUser,
     adminSaveCategory,
@@ -316,7 +325,9 @@ export const AdminPortal: React.FC = () => {
       id: 'listing-approval',
       label: 'Listing Approval',
       icon: ClipboardCheck,
-      badge: listings.filter((l) => l.status === 'Pending Approval').length,
+      badge:
+        listings.filter((l) => l.status === 'Pending Approval').length +
+        sellerOffers.filter((o) => o.status === 'Pending Approval').length,
     },
     {
       id: 'requirement-approval',
@@ -1087,6 +1098,117 @@ export const AdminPortal: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* Public Seller Rate Offers Approval & Moderation */}
+          <div className="pt-6 border-t border-[#E2E8F0] space-y-4">
+            <div>
+              <h2 className="font-display text-lg font-bold text-[#0A172A]">
+                Public Seller Rate Offers Approval Queue
+              </h2>
+              <p className="text-xs text-[#64748B] mt-0.5">
+                Approve pending seller rate offers to publish them live on the homepage and generate public shareable URLs.
+              </p>
+            </div>
+            {sellerOffers.length === 0 ? (
+              <EmptyState
+                title="No public seller rate offers submitted yet."
+                description="Seller rate offers submitted from the Seller Dashboard will appear here for moderation."
+              />
+            ) : (
+              <div className="bg-white border border-[#E2E8F0] rounded-lg overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">
+                        <th className="py-3 px-4">Offer ID</th>
+                        <th className="py-3 px-4">Seller</th>
+                        <th className="py-3 px-4">Material &amp; Category</th>
+                        <th className="py-3 px-4 text-right">Qty / MOQ</th>
+                        <th className="py-3 px-4 text-right">Rate (₹/KG)</th>
+                        <th className="py-3 px-4">Location / Valid Till</th>
+                        <th className="py-3 px-4">Status</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#F1F5F9] text-xs">
+                      {sellerOffers.map((offer) => {
+                        const effStatus = getEffectiveOfferStatus(offer);
+                        return (
+                          <tr key={offer.id} className="hover:bg-[#F8FAFC]">
+                            <td className="py-3 px-4 font-mono font-semibold text-[#10233F] whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() => navigateToOffer(offer.id)}
+                                className="hover:underline cursor-pointer"
+                              >
+                                {offer.id}
+                              </button>
+                            </td>
+                            <td className="py-3 px-4 font-medium text-[#0A172A]">
+                              {offer.sellerCompanyName}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="font-semibold text-[#0A172A]">{offer.materialName}</div>
+                              <div className="text-[11px] text-[#64748B]">
+                                {offer.categoryName} · {offer.categoryType}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-right font-mono tabular-nums whitespace-nowrap">
+                              <div>{formatOfferQuantity(offer.availableQty, offer.quantityUnit)}</div>
+                              <div className="text-[11px] text-[#64748B]">
+                                MOQ: {formatOfferQuantity(offer.minOrderQty, offer.minOrderUnit)}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-right font-mono font-bold text-[#15803D] tabular-nums whitespace-nowrap">
+                              {formatOfferRatePerKg(offer.sellingRatePerKg)}
+                            </td>
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              <div>{offer.city}, {offer.state}</div>
+                              <div className="font-mono text-[11px] text-[#64748B]">
+                                {formatValidityDateDisplay(offer.validityDate)}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <StatusBadge status={effStatus} />
+                            </td>
+                            <td className="py-3 px-4 text-right space-x-1 whitespace-nowrap">
+                              {offer.status !== 'Active' && (
+                                <Button
+                                  variant="emerald"
+                                  size="sm"
+                                  onClick={() => void updateSellerRateOfferStatus(offer, 'Active')}
+                                >
+                                  Approve
+                                </Button>
+                              )}
+                              {offer.status === 'Pending Approval' && (
+                                <Button
+                                  variant="danger"
+                                  size="sm"
+                                  onClick={() => void updateSellerRateOfferStatus(offer, 'Rejected')}
+                                >
+                                  Reject
+                                </Button>
+                              )}
+                              {offer.status === 'Active' && (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => void updateSellerRateOfferStatus(offer, 'Deactivated')}
+                                >
+                                  Deactivate
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

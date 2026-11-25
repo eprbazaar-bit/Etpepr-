@@ -51,6 +51,7 @@ import {
   MatchOpportunity,
   NegotiationEntry,
   NotificationItem,
+  OfferEnquiryRecord,
   OrderStatus,
   PaymentRecord,
   PlatformSettingsRecord,
@@ -58,6 +59,7 @@ import {
   PublishedEprRate,
   SellerAccount,
   SellerListing,
+  SellerOfferRecord,
   SellerTab,
   SeoChangeLog,
   SeoPageRecord,
@@ -110,6 +112,20 @@ import {
   toggleSiteAudioPublishDoc,
 } from '../services/audioExplainerService';
 import { AudioLanguage, AudioTtsModel, AudioVoiceName, DEFAULT_AUDIO_METADATA } from '../../shared/audioExplainer';
+import {
+  buildOfferSeoMetadata,
+  SellerOfferFormInput,
+} from '../../shared/sellerOffers';
+import {
+  createOfferEnquiryDoc,
+  createSellerOfferDoc,
+  setSellerOfferStatusDoc,
+  sortEnquiriesNewestFirst,
+  sortOffersNewestFirst,
+  toSellerOfferBase,
+  updateOfferEnquiryStatusDoc,
+  updateSellerOfferDoc,
+} from '../services/sellerOfferService';
 
 const BOOTSTRAPPED_ADMIN_EMAIL = 'ajaykumartiwari609@gmail.com';
 
@@ -126,6 +142,8 @@ interface MarketplaceContextValue {
   publicPage: PublicPage;
   activeCustomSlug: string;
   selectedCategoryId: string;
+  selectedPublicOfferId: string | null;
+  viewingPublicOfferWhileSignedIn: boolean;
   buyerTab: BuyerTab;
   sellerTab: SellerTab;
   facilitatorTab: FacilitatorTab;
@@ -152,6 +170,9 @@ interface MarketplaceContextValue {
   requirements: BuyerRequirement[];
   listings: SellerListing[];
   publicListings: SellerListing[];
+  publicSellerOffers: SellerOfferRecord[];
+  sellerOffers: SellerOfferRecord[];
+  offerEnquiries: OfferEnquiryRecord[];
   matches: MatchOpportunity[];
   offers: MarketplaceOffer[];
   negotiations: NegotiationEntry[];
@@ -169,6 +190,9 @@ interface MarketplaceContextValue {
   audioExplainers: SiteAudioExplainerRecord[];
   toasts: ToastMessage[];
   navigatePublic: (page: PublicPage, categoryId?: string, customSlug?: string) => void;
+  navigateToOffer: (offerId: string) => void;
+  returnToPortalDashboard: () => void;
+  startBuyerAuthForOffer: (offerId: string) => void;
   setBuyerTab: (tab: BuyerTab, id?: string) => void;
   setSellerTab: (tab: SellerTab, id?: string) => void;
   setFacilitatorTab: (tab: FacilitatorTab, id?: string) => void;
@@ -218,6 +242,31 @@ interface MarketplaceContextValue {
   ) => Promise<string>;
   updateListingStatus: (id: string, status: SellerListing['status']) => Promise<void>;
   editListing: (id: string, qty: number, askingRate: number, additionalInfo: string) => Promise<void>;
+  submitSellerRateOffer: (
+    input: SellerOfferFormInput,
+    asDraft?: boolean
+  ) => Promise<{ id: string; status: SellerOfferRecord['status'] }>;
+  editSellerRateOffer: (
+    offerId: string,
+    input: SellerOfferFormInput,
+    targetStatus: SellerOfferRecord['status']
+  ) => Promise<void>;
+  updateSellerRateOfferStatus: (
+    offer: SellerOfferRecord,
+    nextStatus: SellerOfferRecord['status']
+  ) => Promise<void>;
+  submitOfferEnquiry: (params: {
+    offer: SellerOfferRecord;
+    requestedQty: number;
+    requestedUnit: 'KG' | 'MT';
+    proposedRatePerKg: number;
+    message: string;
+  }) => Promise<string>;
+  updateOfferEnquiryStatus: (
+    enquiry: OfferEnquiryRecord,
+    status: OfferEnquiryRecord['status'],
+    sellerResponseNote?: string
+  ) => Promise<void>;
   respondToOffer: (
     offer: MarketplaceOffer,
     action: 'accept' | 'reject' | 'counter',
@@ -399,6 +448,7 @@ const PUBLIC_PAGE_SLUGS: PublicPage[] = [
 function resolveRouteFromLocation(): {
   page: PublicPage;
   categoryId?: string;
+  offerId?: string;
   customSlug: string;
 } {
   if (typeof window === 'undefined') return { page: 'home', customSlug: '/' };
@@ -410,6 +460,20 @@ function resolveRouteFromLocation(): {
   const cleanPathname = normalizeSlug(window.location.pathname);
   if (cleanPathname === '/') {
     return { page: 'home', customSlug: '/' };
+  }
+  const offerMatch = window.location.pathname.match(/^\/offer\/([^/]+)\/?$/i);
+  if (offerMatch) {
+    let decodedOfferId = offerMatch[1];
+    try {
+      decodedOfferId = decodeURIComponent(offerMatch[1]);
+    } catch {
+      decodedOfferId = offerMatch[1];
+    }
+    return {
+      page: 'offer-details',
+      offerId: decodedOfferId.trim(),
+      customSlug: `/offer/${encodeURIComponent(decodedOfferId.trim())}`,
+    };
   }
   if (cleanPathname.startsWith('/category/')) {
     const catId = decodeURIComponent(cleanPathname.slice('/category/'.length));
@@ -444,6 +508,15 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [activeCustomSlug, setActiveCustomSlug] = useState<string>(() => initialRoute.customSlug);
   const [pendingListingDeepLink, setPendingListingDeepLink] = useState<string | null>(initialListingParam);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(() => initialRoute.categoryId || '');
+  const [selectedPublicOfferId, setSelectedPublicOfferId] = useState<string | null>(
+    () => initialRoute.offerId || null
+  );
+  const [pendingOfferDeepLink, setPendingOfferDeepLink] = useState<string | null>(
+    () => (initialRoute.page === 'offer-details' && initialRoute.offerId ? initialRoute.offerId : null)
+  );
+  const [viewingPublicOfferWhileSignedIn, setViewingPublicOfferWhileSignedIn] = useState<boolean>(
+    () => initialRoute.page === 'offer-details' && Boolean(initialRoute.offerId)
+  );
   const [buyerTab, setBuyerTabState] = useState<BuyerTab>('overview');
   const [sellerTab, setSellerTabState] = useState<SellerTab>('overview');
   const [facilitatorTab, setFacilitatorTabState] = useState<FacilitatorTab>('overview');
@@ -473,6 +546,9 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [requirements, setRequirements] = useState<BuyerRequirement[]>([]);
   const [listings, setListings] = useState<SellerListing[]>([]);
   const [publicListings, setPublicListings] = useState<SellerListing[]>([]);
+  const [publicSellerOffers, setPublicSellerOffers] = useState<SellerOfferRecord[]>([]);
+  const [sellerOffers, setSellerOffers] = useState<SellerOfferRecord[]>([]);
+  const [offerEnquiries, setOfferEnquiries] = useState<OfferEnquiryRecord[]>([]);
   const [matches, setMatches] = useState<MatchOpportunity[]>([]);
   const [offers, setOffers] = useState<MarketplaceOffer[]>([]);
   const [negotiations, setNegotiations] = useState<NegotiationEntry[]>([]);
@@ -503,11 +579,15 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const navigatePublic = (page: PublicPage, categoryId?: string, customSlug?: string) => {
+    setViewingPublicOfferWhileSignedIn(false);
     if (role !== 'public' && page !== 'login') {
       setRole('public');
     }
     setPublicPage(page);
     if (categoryId) setSelectedCategoryId(categoryId);
+    if (page !== 'offer-details') {
+      setSelectedPublicOfferId(null);
+    }
 
     let nextPath = page === 'home' ? '/' : `/${page}`;
     if (page === 'category-details' && (categoryId || selectedCategoryId)) {
@@ -525,6 +605,48 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   };
 
+  const navigateToOffer = (offerId: string) => {
+    const cleanId = offerId.trim();
+    if (!cleanId) return;
+    const nextPath = `/offer/${encodeURIComponent(cleanId)}`;
+    setSelectedPublicOfferId(cleanId);
+    setPublicPage('offer-details');
+    setActiveCustomSlug(nextPath);
+    if (role !== 'public') {
+      setViewingPublicOfferWhileSignedIn(true);
+    }
+    if (typeof window !== 'undefined') {
+      if (window.location.pathname !== nextPath || window.location.search) {
+        window.history.pushState({ publicPage: 'offer-details', offerId: cleanId }, '', nextPath);
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const returnToPortalDashboard = () => {
+    setViewingPublicOfferWhileSignedIn(false);
+    setPendingOfferDeepLink(null);
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/offer/')) {
+      window.history.pushState({}, '', '/');
+    }
+  };
+
+  const startBuyerAuthForOffer = (offerId: string) => {
+    const cleanId = offerId.trim();
+    if (cleanId) {
+      setPendingOfferDeepLink(cleanId);
+      setSelectedPublicOfferId(cleanId);
+    }
+    setPendingOnboardingRole('buyer');
+    setViewingPublicOfferWhileSignedIn(false);
+    setPublicPage('login');
+    setActiveCustomSlug('/login');
+    if (typeof window !== 'undefined') {
+      window.history.pushState({ publicPage: 'login', offerId: cleanId }, '', '/login');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handlePopState = () => {
@@ -532,6 +654,13 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setPublicPage(next.page);
       setActiveCustomSlug(next.customSlug);
       if (next.categoryId) setSelectedCategoryId(next.categoryId);
+      if (next.page === 'offer-details' && next.offerId) {
+        setSelectedPublicOfferId(next.offerId);
+        setViewingPublicOfferWhileSignedIn(true);
+      } else {
+        setSelectedPublicOfferId(null);
+        setViewingPublicOfferWhileSignedIn(false);
+      }
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -539,6 +668,41 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
+
+    const showingOfferPage =
+      publicPage === 'offer-details' &&
+      Boolean(selectedPublicOfferId) &&
+      (role === 'public' || viewingPublicOfferWhileSignedIn);
+
+    if (showingOfferPage && selectedPublicOfferId) {
+      const matched =
+        publicSellerOffers.find((o) => o.id === selectedPublicOfferId) ||
+        sellerOffers.find((o) => o.id === selectedPublicOfferId) ||
+        null;
+      const offerSeo = buildOfferSeoMetadata(
+        matched ? toSellerOfferBase(matched) : null,
+        selectedPublicOfferId
+      );
+      applyResolvedSeoToDocument({
+        pageTitle: offerSeo.pageTitle,
+        seoTitle: offerSeo.seoTitle,
+        metaDescription: offerSeo.metaDescription,
+        canonicalUrl: offerSeo.canonicalUrl,
+        robots: offerSeo.robots,
+        ogTitle: offerSeo.ogTitle,
+        ogDescription: offerSeo.ogDescription,
+        ogImage: offerSeo.ogImage,
+        ogType: offerSeo.ogType,
+        ogSiteName: offerSeo.ogSiteName,
+        twitterCard: offerSeo.twitterCard,
+        twitterTitle: offerSeo.twitterTitle,
+        twitterDescription: offerSeo.twitterDescription,
+        twitterImage: offerSeo.twitterImage,
+        structuredData: offerSeo.structuredData,
+      });
+      return;
+    }
+
     let routePath = '/';
     if (role === 'buyer') routePath = '/buyer';
     else if (role === 'seller') routePath = '/seller';
@@ -567,7 +731,18 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }))
     );
     applyResolvedSeoToDocument(resolved);
-  }, [publicPage, activeCustomSlug, selectedCategoryId, role, seoPages, categories]);
+  }, [
+    publicPage,
+    activeCustomSlug,
+    selectedCategoryId,
+    selectedPublicOfferId,
+    viewingPublicOfferWhileSignedIn,
+    role,
+    seoPages,
+    categories,
+    publicSellerOffers,
+    sellerOffers,
+  ]);
 
   const setBuyerTab = (tab: BuyerTab, id?: string) => {
     setBuyerTabState(tab);
@@ -706,6 +881,14 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         query(collection(db, 'seller_listings'), where('status', 'in', ['Active', 'Partially Allocated'])),
         (snap) => setPublicListings(snap.docs.map((d) => d.data() as SellerListing)),
         onErr('seller_listings')
+      )
+    );
+
+    unsubs.push(
+      onSnapshot(
+        query(collection(db, 'seller_offers'), where('status', '==', 'Active')),
+        (snap) => setPublicSellerOffers(sortOffersNewestFirst(snap.docs.map((d) => d.data() as SellerOfferRecord))),
+        onErr('seller_offers')
       )
     );
 
@@ -959,6 +1142,11 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           setNotifications(s.docs.map((d) => d.data() as NotificationItem));
         }, onErr('notifications'))
       );
+      unsubs.push(
+        onSnapshot(query(collection(db, 'offer_enquiries'), where('buyerUid', '==', uid)), (s) => {
+          setOfferEnquiries(sortEnquiriesNewestFirst(s.docs.map((d) => d.data() as OfferEnquiryRecord)));
+        }, onErr('offer_enquiries'))
+      );
     } else if (role === 'seller') {
       unsubs.push(
         onSnapshot(doc(db, 'sellers', uid), (s) => {
@@ -1013,11 +1201,23 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
           setNotifications(s.docs.map((d) => d.data() as NotificationItem));
         }, onErr('notifications'))
       );
+      unsubs.push(
+        onSnapshot(query(collection(db, 'seller_offers'), where('sellerUid', '==', uid)), (s) => {
+          setSellerOffers(sortOffersNewestFirst(s.docs.map((d) => d.data() as SellerOfferRecord)));
+        }, onErr('seller_offers'))
+      );
+      unsubs.push(
+        onSnapshot(query(collection(db, 'offer_enquiries'), where('sellerUid', '==', uid)), (s) => {
+          setOfferEnquiries(sortEnquiriesNewestFirst(s.docs.map((d) => d.data() as OfferEnquiryRecord)));
+        }, onErr('offer_enquiries'))
+      );
     } else if (role === 'facilitator' || role === 'admin') {
       unsubs.push(onSnapshot(collection(db, 'buyers'), (s) => { setBuyers(s.docs.map((d) => d.data() as BuyerAccount)); done(); }, onErr('buyers')));
       unsubs.push(onSnapshot(collection(db, 'sellers'), (s) => setSellers(s.docs.map((d) => d.data() as SellerAccount)), onErr('sellers')));
       unsubs.push(onSnapshot(collection(db, 'buyer_requirements'), (s) => setRequirements(s.docs.map((d) => d.data() as BuyerRequirement)), onErr('buyer_requirements')));
       unsubs.push(onSnapshot(collection(db, 'seller_listings'), (s) => setListings(s.docs.map((d) => d.data() as SellerListing)), onErr('seller_listings')));
+      unsubs.push(onSnapshot(collection(db, 'seller_offers'), (s) => setSellerOffers(sortOffersNewestFirst(s.docs.map((d) => d.data() as SellerOfferRecord))), onErr('seller_offers')));
+      unsubs.push(onSnapshot(collection(db, 'offer_enquiries'), (s) => setOfferEnquiries(sortEnquiriesNewestFirst(s.docs.map((d) => d.data() as OfferEnquiryRecord))), onErr('offer_enquiries')));
       unsubs.push(onSnapshot(collection(db, 'matches'), (s) => setMatches(s.docs.map((d) => d.data() as MatchOpportunity)), onErr('matches')));
       unsubs.push(onSnapshot(collection(db, 'offers'), (s) => setOffers(s.docs.map((d) => d.data() as MarketplaceOffer)), onErr('offers')));
       unsubs.push(onSnapshot(collection(db, 'negotiations'), (s) => setNegotiations(s.docs.map((d) => d.data() as NegotiationEntry)), onErr('negotiations')));
@@ -1095,6 +1295,21 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setPendingListingDeepLink(null);
     }
   }, [pendingListingDeepLink, role]);
+
+  // Handle post-login return to shared offer link (/offer/:offerId)
+  useEffect(() => {
+    if (!pendingOfferDeepLink || role === 'public') return;
+    const offerId = pendingOfferDeepLink;
+    const nextPath = `/offer/${encodeURIComponent(offerId)}`;
+    setSelectedPublicOfferId(offerId);
+    setPublicPage('offer-details');
+    setActiveCustomSlug(nextPath);
+    setViewingPublicOfferWhileSignedIn(true);
+    setPendingOfferDeepLink(null);
+    if (typeof window !== 'undefined' && window.location.pathname !== nextPath) {
+      window.history.replaceState({ publicPage: 'offer-details', offerId }, '', nextPath);
+    }
+  }, [pendingOfferDeepLink, role]);
 
   const signInGoogleForRole = async (targetRole: 'buyer' | 'seller' | 'facilitator' | 'admin') => {
     if (!auth) throw new Error('Authentication service is unavailable right now. Please refresh.');
@@ -1236,6 +1451,10 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setAdmins([]);
     setRequirements([]);
     setListings([]);
+    setSellerOffers([]);
+    setOfferEnquiries([]);
+    setViewingPublicOfferWhileSignedIn(false);
+    setPendingOfferDeepLink(null);
     setMatches([]);
     setOffers([]);
     setNegotiations([]);
@@ -1421,6 +1640,114 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `seller_listings/${id}`);
     }
+  };
+
+  const submitSellerRateOffer = async (
+    input: SellerOfferFormInput,
+    asDraft = false
+  ): Promise<{ id: string; status: SellerOfferRecord['status'] }> => {
+    if (!authUser) throw new Error('Seller authentication required.');
+    const result = await createSellerOfferDoc({
+      sellerUid: authUser.uid,
+      sellerEmail: authUser.email || '',
+      sellerAccount: currentSeller,
+      input,
+      asDraft,
+    });
+    addToast({
+      type: 'success',
+      title: asDraft
+        ? `Offer ${result.id} saved as draft`
+        : result.status === 'Active'
+          ? `Offer ${result.id} is now live on EPR Bazaar`
+          : `Offer ${result.id} submitted for Admin approval`,
+    });
+    return result;
+  };
+
+  const editSellerRateOffer = async (
+    offerId: string,
+    input: SellerOfferFormInput,
+    targetStatus: SellerOfferRecord['status']
+  ): Promise<void> => {
+    if (!authUser) throw new Error('Seller authentication required.');
+    await updateSellerOfferDoc({
+      offerId,
+      sellerUid: authUser.uid,
+      sellerEmail: authUser.email || '',
+      sellerAccount: currentSeller,
+      input,
+      targetStatus,
+    });
+    addToast({ type: 'success', title: `Selling offer ${offerId} updated` });
+  };
+
+  const updateSellerRateOfferStatus = async (
+    offer: SellerOfferRecord,
+    nextStatus: SellerOfferRecord['status']
+  ): Promise<void> => {
+    if (!authUser) throw new Error('Authentication required.');
+    const actorRole: 'Seller' | 'Admin' | 'Facilitator' =
+      role === 'admin' ? 'Admin' : role === 'facilitator' ? 'Facilitator' : 'Seller';
+    await setSellerOfferStatusDoc({
+      offer,
+      nextStatus,
+      actorUid: authUser.uid,
+      actorEmail: authUser.email || '',
+      actorRole,
+    });
+    addToast({
+      type: nextStatus === 'Active' ? 'success' : nextStatus === 'Rejected' || nextStatus === 'Deactivated' ? 'warning' : 'info',
+      title: `Offer ${offer.id} marked ${nextStatus}`,
+    });
+  };
+
+  const submitOfferEnquiry = async (params: {
+    offer: SellerOfferRecord;
+    requestedQty: number;
+    requestedUnit: 'KG' | 'MT';
+    proposedRatePerKg: number;
+    message: string;
+  }): Promise<string> => {
+    if (!authUser) throw new Error('Please sign in as a buyer to submit an enquiry.');
+    if (role !== 'buyer') {
+      throw new Error('Only registered Buyer accounts can submit enquiries on seller offers.');
+    }
+    const enquiryId = await createOfferEnquiryDoc({
+      offer: params.offer,
+      buyerUid: authUser.uid,
+      buyerEmail: authUser.email || '',
+      buyerAccount: currentBuyer,
+      requestedQty: params.requestedQty,
+      requestedUnit: params.requestedUnit,
+      proposedRatePerKg: params.proposedRatePerKg,
+      message: params.message,
+    });
+    addToast({
+      type: 'success',
+      title: `Enquiry ${enquiryId} sent to seller`,
+      description: 'The seller has been notified inside their dashboard.',
+    });
+    return enquiryId;
+  };
+
+  const updateOfferEnquiryStatus = async (
+    enquiry: OfferEnquiryRecord,
+    status: OfferEnquiryRecord['status'],
+    sellerResponseNote?: string
+  ): Promise<void> => {
+    if (!authUser) throw new Error('Authentication required.');
+    const actorRole: 'Seller' | 'Admin' | 'Facilitator' =
+      role === 'admin' ? 'Admin' : role === 'facilitator' ? 'Facilitator' : 'Seller';
+    await updateOfferEnquiryStatusDoc({
+      enquiry,
+      status,
+      sellerResponseNote,
+      actorUid: authUser.uid,
+      actorEmail: authUser.email || '',
+      actorRole,
+    });
+    addToast({ type: 'success', title: `Enquiry ${enquiry.id} updated to ${status}` });
   };
 
   const respondToOffer = async (
@@ -2357,6 +2684,8 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         publicPage,
         activeCustomSlug,
         selectedCategoryId,
+        selectedPublicOfferId,
+        viewingPublicOfferWhileSignedIn,
         buyerTab,
         sellerTab,
         facilitatorTab,
@@ -2383,6 +2712,9 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         requirements,
         listings,
         publicListings,
+        publicSellerOffers,
+        sellerOffers,
+        offerEnquiries,
         matches,
         offers,
         negotiations,
@@ -2400,6 +2732,9 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         audioExplainers,
         toasts,
         navigatePublic,
+        navigateToOffer,
+        returnToPortalDashboard,
+        startBuyerAuthForOffer,
         setBuyerTab,
         setSellerTab,
         setFacilitatorTab,
@@ -2416,6 +2751,11 @@ export const MarketplaceProvider: React.FC<{ children: React.ReactNode }> = ({ c
         submitSellerListing,
         updateListingStatus,
         editListing,
+        submitSellerRateOffer,
+        editSellerRateOffer,
+        updateSellerRateOfferStatus,
+        submitOfferEnquiry,
+        updateOfferEnquiryStatus,
         respondToOffer,
         facilitatorSendOffer,
         facilitatorAddNote,

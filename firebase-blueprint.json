@@ -613,6 +613,61 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "language", "languageLabel", "title", "narrationScript", "audioUrl", "storagePath", "storageProvider", "mimeType", "fileName", "fileSizeBytes", "durationSeconds", "sourceType", "modelUsed", "voiceName", "published", "updatedByUid", "updatedByEmail", "createdAt", "updatedAt"]
+    },
+    "SellerOffer": {
+      "title": "SellerOffer",
+      "description": "Publicly shareable seller EPR rate offer with validity date, location, MOQ, and pricing in INR per KG.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 3, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "sellerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "sellerCompanyId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "sellerCompanyName": { "type": "string", "minLength": 2, "maxLength": 180 },
+        "sellerVerification": { "type": "string", "enum": ["Verified", "Pending Review", "Action Required"] },
+        "categoryId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "categoryName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "materialName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "categoryType": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "availableQty": { "type": "number" },
+        "quantityUnit": { "type": "string", "enum": ["KG", "MT"] },
+        "sellingRatePerKg": { "type": "number" },
+        "minOrderQty": { "type": "number" },
+        "minOrderUnit": { "type": "string", "enum": ["KG", "MT"] },
+        "state": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "city": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "validityDate": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "remarks": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["Draft", "Pending Approval", "Active", "Deactivated", "Rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "sellerUid", "sellerCompanyId", "sellerCompanyName", "sellerVerification", "categoryId", "categoryName", "materialName", "categoryType", "availableQty", "quantityUnit", "sellingRatePerKg", "minOrderQty", "minOrderUnit", "state", "city", "validityDate", "status", "createdAt", "updatedAt"]
+    },
+    "OfferEnquiry": {
+      "title": "OfferEnquiry",
+      "description": "Authenticated buyer enquiry tied to a specific public SellerOffer and seller account.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 3, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "offerId": { "type": "string", "minLength": 3, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "sellerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "buyerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "buyerCompanyName": { "type": "string", "minLength": 2, "maxLength": 180 },
+        "buyerContactPerson": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "buyerCity": { "type": "string", "maxLength": 80 },
+        "buyerState": { "type": "string", "maxLength": 80 },
+        "offerMaterialName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "offerCategoryName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "requestedQty": { "type": "number" },
+        "requestedUnit": { "type": "string", "enum": ["KG", "MT"] },
+        "proposedRatePerKg": { "type": "number" },
+        "message": { "type": "string", "minLength": 5, "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["New", "Reviewed", "Responded", "Closed"] },
+        "sellerResponseNote": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "offerId", "sellerUid", "buyerUid", "buyerCompanyName", "buyerContactPerson", "buyerCity", "buyerState", "offerMaterialName", "offerCategoryName", "requestedQty", "requestedUnit", "proposedRatePerKg", "message", "status", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -644,6 +699,8 @@
     "/seo_pages/{pageId}": { "schema": { "$ref": "#/entities/SeoPage" }, "description": "SEO metadata and publish state for public pages." },
     "/seo_settings/{settingId}": { "schema": { "$ref": "#/entities/SeoSettings" }, "description": "Global SEO sitemap status and canonical domain settings." },
     "/seo_logs/{logId}": { "schema": { "$ref": "#/entities/SeoChangeLog" }, "description": "SEO metadata and sitemap change logs." },
-    "/site_audio_explainers/{langId}": { "schema": { "$ref": "#/entities/SiteAudioExplainer" }, "description": "Published or draft English and Hindi platform audio explainer metadata." }
+    "/site_audio_explainers/{langId}": { "schema": { "$ref": "#/entities/SiteAudioExplainer" }, "description": "Published or draft English and Hindi platform audio explainer metadata." },
+    "/seller_offers/{offerId}": { "schema": { "$ref": "#/entities/SellerOffer" }, "description": "Publicly shareable seller EPR rate offers." },
+    "/offer_enquiries/{enquiryId}": { "schema": { "$ref": "#/entities/OfferEnquiry" }, "description": "Buyer enquiries linked to seller EPR rate offers." }
   }
 }

@@ -27,6 +27,7 @@ export type PublicPage =
   | 'password-reset'
   | 'blog'
   | 'blog-post'
+  | 'offer-details'
   | 'custom-page';
 
 export type BuyerTab =
@@ -54,6 +55,8 @@ export type SellerTab =
   | 'create-listing'
   | 'my-listings'
   | 'listing-details'
+  | 'submit-selling-offer'
+  | 'my-selling-offers'
   | 'matching-opportunities'
   | 'offers-received'
   | 'offer-details'
@@ -805,6 +808,51 @@ export interface SiteAudioExplainerRecord {
   published: boolean;
   updatedByUid: string;
   updatedByEmail: string;
+  createdAt?: FirestoreTime;
+  updatedAt?: FirestoreTime;
+}
+
+export interface SellerOfferRecord {
+  id: string;
+  sellerUid: string;
+  sellerCompanyId: string;
+  sellerCompanyName: string;
+  sellerVerification: 'Verified' | 'Pending Review' | 'Action Required';
+  categoryId: string;
+  categoryName: string;
+  materialName: string;
+  categoryType: string;
+  availableQty: number;
+  quantityUnit: 'KG' | 'MT';
+  sellingRatePerKg: number;
+  minOrderQty: number;
+  minOrderUnit: 'KG' | 'MT';
+  state: string;
+  city: string;
+  validityDate: string;
+  remarks?: string;
+  status: 'Draft' | 'Pending Approval' | 'Active' | 'Deactivated' | 'Rejected';
+  createdAt?: FirestoreTime;
+  updatedAt?: FirestoreTime;
+}
+
+export interface OfferEnquiryRecord {
+  id: string;
+  offerId: string;
+  sellerUid: string;
+  buyerUid: string;
+  buyerCompanyName: string;
+  buyerContactPerson: string;
+  buyerCity: string;
+  buyerState: string;
+  offerMaterialName: string;
+  offerCategoryName: string;
+  requestedQty: number;
+  requestedUnit: 'KG' | 'MT';
+  proposedRatePerKg: number;
+  message: string;
+  status: 'New' | 'Reviewed' | 'Responded' | 'Closed';
+  sellerResponseNote?: string;
   createdAt?: FirestoreTime;
   updatedAt?: FirestoreTime;
 }

@@ -548,6 +548,58 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidSellerOffer(data) {
+      return data.keys().hasAll(['id', 'sellerUid', 'sellerCompanyId', 'sellerCompanyName', 'sellerVerification', 'categoryId', 'categoryName', 'materialName', 'categoryType', 'availableQty', 'quantityUnit', 'sellingRatePerKg', 'minOrderQty', 'minOrderUnit', 'state', 'city', 'validityDate', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'sellerUid', 'sellerCompanyId', 'sellerCompanyName', 'sellerVerification', 'categoryId', 'categoryName', 'materialName', 'categoryType', 'availableQty', 'quantityUnit', 'sellingRatePerKg', 'minOrderQty', 'minOrderUnit', 'state', 'city', 'validityDate', 'remarks', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id.size() >= 3 && data.id.size() <= 64
+        && isValidId(data.sellerUid)
+        && data.sellerCompanyId is string && data.sellerCompanyId.size() >= 1 && data.sellerCompanyId.size() <= 64
+        && data.sellerCompanyName is string && data.sellerCompanyName.size() >= 2 && data.sellerCompanyName.size() <= 180
+        && data.sellerVerification in ['Verified', 'Pending Review', 'Action Required']
+        && isValidId(data.categoryId)
+        && data.categoryName is string && data.categoryName.size() >= 2 && data.categoryName.size() <= 100
+        && data.materialName is string && data.materialName.size() >= 2 && data.materialName.size() <= 120
+        && data.categoryType is string && data.categoryType.size() >= 1 && data.categoryType.size() <= 100
+        && data.availableQty is number && data.availableQty > 0
+        && data.quantityUnit in ['KG', 'MT']
+        && data.sellingRatePerKg is number && data.sellingRatePerKg > 0
+        && data.minOrderQty is number && data.minOrderQty > 0
+        && data.minOrderUnit in ['KG', 'MT']
+        && data.state is string && data.state.size() >= 2 && data.state.size() <= 80
+        && data.city is string && data.city.size() >= 2 && data.city.size() <= 80
+        && data.validityDate is string && data.validityDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (!('remarks' in data) || (data.remarks is string && data.remarks.size() <= 1000))
+        && data.status in ['Draft', 'Pending Approval', 'Active', 'Deactivated', 'Rejected']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidOfferEnquiry(data) {
+      return data.keys().hasAll(['id', 'offerId', 'sellerUid', 'buyerUid', 'buyerCompanyName', 'buyerContactPerson', 'buyerCity', 'buyerState', 'offerMaterialName', 'offerCategoryName', 'requestedQty', 'requestedUnit', 'proposedRatePerKg', 'message', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'offerId', 'sellerUid', 'buyerUid', 'buyerCompanyName', 'buyerContactPerson', 'buyerCity', 'buyerState', 'offerMaterialName', 'offerCategoryName', 'requestedQty', 'requestedUnit', 'proposedRatePerKg', 'message', 'status', 'sellerResponseNote', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id.size() >= 3 && data.id.size() <= 64
+        && isValidId(data.offerId)
+        && data.offerId.size() >= 3 && data.offerId.size() <= 64
+        && isValidId(data.sellerUid)
+        && isValidId(data.buyerUid)
+        && data.buyerCompanyName is string && data.buyerCompanyName.size() >= 2 && data.buyerCompanyName.size() <= 180
+        && data.buyerContactPerson is string && data.buyerContactPerson.size() >= 2 && data.buyerContactPerson.size() <= 120
+        && data.buyerCity is string && data.buyerCity.size() <= 80
+        && data.buyerState is string && data.buyerState.size() <= 80
+        && data.offerMaterialName is string && data.offerMaterialName.size() >= 2 && data.offerMaterialName.size() <= 120
+        && data.offerCategoryName is string && data.offerCategoryName.size() >= 2 && data.offerCategoryName.size() <= 100
+        && data.requestedQty is number && data.requestedQty > 0
+        && data.requestedUnit in ['KG', 'MT']
+        && data.proposedRatePerKg is number && data.proposedRatePerKg >= 0
+        && data.message is string && data.message.size() >= 5 && data.message.size() <= 1000
+        && data.status in ['New', 'Reviewed', 'Responded', 'Closed']
+        && (!('sellerResponseNote' in data) || (data.sellerResponseNote is string && data.sellerResponseNote.size() <= 1000))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     // 1. users (strict RBAC: users can only self-register as buyer or seller)
     match /users/{uid} {
       allow get: if isValidId(uid) && isSignedIn() && (uid == request.auth.uid || isStaff());
@@ -1031,6 +1083,90 @@ service cloud.firestore {
         && incoming().updatedByUid == request.auth.uid
         && incoming().updatedAt == request.time;
       allow delete: if langId in ['en', 'hi'] && isAdmin();
+    }
+
+    // 29. seller_offers (publicly shareable seller EPR rate offers; active offers readable publicly, owner/admin write)
+    match /seller_offers/{offerId} {
+      allow get: if isValidId(offerId) && (
+        existing().status == 'Active' ||
+        (isSignedIn() && (existing().sellerUid == request.auth.uid || isStaff()))
+      );
+      allow list: if existing().status == 'Active' || (isSignedIn() && (existing().sellerUid == request.auth.uid || isStaff()));
+      allow create: if isValidId(offerId) && isSignedIn() && isValidSellerOffer(incoming())
+        && incoming().id == offerId
+        && incoming().sellerUid == request.auth.uid
+        && exists(/databases/$(database)/documents/sellers/$(request.auth.uid))
+        && exists(/databases/$(database)/documents/categories/$(incoming().categoryId))
+        && (
+          incoming().status in ['Draft', 'Pending Approval'] ||
+          (incoming().status == 'Active' && get(/databases/$(database)/documents/sellers/$(request.auth.uid)).data.verification == 'Verified')
+        )
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(offerId) && isSignedIn() && isValidSellerOffer(incoming()) && (
+        (isAdmin()
+          && incoming().id == existing().id
+          && incoming().sellerUid == existing().sellerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time) ||
+        (existing().sellerUid == request.auth.uid
+          && incoming().id == existing().id
+          && incoming().sellerUid == existing().sellerUid
+          && incoming().sellerCompanyId == existing().sellerCompanyId
+          && incoming().sellerCompanyName == existing().sellerCompanyName
+          && incoming().sellerVerification == existing().sellerVerification
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/categories/$(incoming().categoryId))
+          && incoming().diff(existing()).affectedKeys().hasOnly(['categoryId', 'categoryName', 'materialName', 'categoryType', 'availableQty', 'quantityUnit', 'sellingRatePerKg', 'minOrderQty', 'minOrderUnit', 'state', 'city', 'validityDate', 'remarks', 'status', 'updatedAt'])
+          && (
+            incoming().status in ['Draft', 'Pending Approval', 'Deactivated'] ||
+            (incoming().status == 'Active' && get(/databases/$(database)/documents/sellers/$(request.auth.uid)).data.verification == 'Verified')
+          ))
+      );
+      allow delete: if false;
+    }
+
+    // 30. offer_enquiries (authenticated buyer enquiries linked to active seller_offers)
+    match /offer_enquiries/{enquiryId} {
+      allow get: if isValidId(enquiryId) && isSignedIn() && (
+        existing().buyerUid == request.auth.uid ||
+        existing().sellerUid == request.auth.uid ||
+        isStaff()
+      );
+      allow list: if isSignedIn() && (
+        existing().buyerUid == request.auth.uid ||
+        existing().sellerUid == request.auth.uid ||
+        isStaff()
+      );
+      allow create: if isValidId(enquiryId) && isSignedIn() && isValidOfferEnquiry(incoming())
+        && incoming().id == enquiryId
+        && incoming().buyerUid == request.auth.uid
+        && incoming().sellerUid != request.auth.uid
+        && incoming().status == 'New'
+        && exists(/databases/$(database)/documents/seller_offers/$(incoming().offerId))
+        && get(/databases/$(database)/documents/seller_offers/$(incoming().offerId)).data.sellerUid == incoming().sellerUid
+        && get(/databases/$(database)/documents/seller_offers/$(incoming().offerId)).data.status == 'Active'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(enquiryId) && isSignedIn() && isValidOfferEnquiry(incoming()) && (
+        (isAdmin()
+          && incoming().id == existing().id
+          && incoming().offerId == existing().offerId
+          && incoming().sellerUid == existing().sellerUid
+          && incoming().buyerUid == existing().buyerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time) ||
+        (existing().sellerUid == request.auth.uid
+          && incoming().id == existing().id
+          && incoming().offerId == existing().offerId
+          && incoming().sellerUid == existing().sellerUid
+          && incoming().buyerUid == existing().buyerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'sellerResponseNote', 'updatedAt']))
+      );
+      allow delete: if false;
     }
   }
 }
